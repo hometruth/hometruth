@@ -1,0 +1,21 @@
+[Unit]
+Description=HomeTruth Hue bridge proxy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hometruth
+WorkingDirectory=/opt/hometruth
+EnvironmentFile=/etc/hometruth/hue-proxy.env
+ExecStart=/usr/local/bin/bun /opt/hometruth/src/integrations/hue-proxy/main.ts --config /etc/hometruth/hue-proxy.yml
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

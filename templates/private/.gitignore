@@ -1,0 +1,53 @@
+# A private repository is not permission to commit secrets.
+# Deny files by default; allow named config and reviewed research notes/source.
+*
+!.gitignore
+!README.md
+!site.json
+!devices.yml
+!hue-proxy.yml
+!kindle.json
+!dog-announcer.json
+!.github/
+.github/*
+!.github/workflows/
+.github/workflows/*
+!.github/workflows/check.yml
+!.github/workflows/hometruth-action.yml
+# Secrets, pairing state, certificates, logs and databases remain ignored.
+
+# Research is private; only reviewed text/source is eligible for Git.
+!research/
+!research/**/
+!research/**/*.md
+!research/**/*.txt
+!research/**/*.ts
+!research/**/*.mjs
+!research/**/*.js
+!research/**/*.sh
+!research/**/*.py
+!research/**/*.java
+!research/**/*.c
+!research/**/*.h
+!research/**/*.cpp
+!research/**/*.ino
+!research/**/*.ini
+!research/**/*.html
+research/**/.git/
+research/**/.hometruth/
+research/**/node_modules/
+research/**/__pycache__/
+research/**/.DS_Store/
+research/**/artifacts/
+research/**/captures/
+research/**/recordings/
+research/**/images/
+research/**/secrets/
+research/**/private/
+research/**/local/
+research/**/apps/
+research/**/ghidra/
+research/**/community/
+research/**/datasets/
+research/**/.*
+research/**/*.local.*

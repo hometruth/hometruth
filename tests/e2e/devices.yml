@@ -1,0 +1,22 @@
+# Deterministic device inventory for the Playwright suite. A test-mode server
+# never probes or broadcasts, so the camera simply shows as not yet discovered.
+schemaVersion: 2
+devices:
+  - id: e2e-camera
+    name: E2E pet camera
+    model: tkenpro-2k-pet-camera-treat-dispenser
+    config:
+      host: 127.0.0.1
+  - id: e2e-relay
+    name: E2E relay
+    model: shelly-plus-1
+    config:
+      host: 127.0.0.1
+      timeoutMs: 500
+  - id: e2e-wyze
+    name: E2E Wyze Cam v3
+    model: wyze-cam-v3
+    config:
+      host: 127.0.0.1
+      firmware: thingino
+      timeoutMs: 500

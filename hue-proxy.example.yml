@@ -1,0 +1,64 @@
+# Copy to hue-proxy.yml. Run on an unused LAN address (ports 80/443/2100).
+# Both addresses below are EXAMPLES. bridge.url must be the REAL bridge.
+name: HomeTruth Hue
+listen:
+  host: 10.77.0.80
+  advertiseAddress: 10.77.0.80
+  httpPort: 80
+  httpsPort: 443
+  discovery: true
+bridge:
+  url: https://10.77.0.2
+  # Omit these to reuse matching vendors.hue credentials in secrets.yml.
+  applicationKeyEnv: HUE_APPLICATION_KEY
+  clientKeyEnv: HUE_CLIENT_KEY
+  verifyTls: false
+stateDirectory: .hometruth/hue-proxy
+monitor:
+  enabled: true
+  pollIntervalMs: 10000
+  reconnectMs: 2000
+entertainment:
+  enabled: true
+  port: 2100
+  upstreamPort: 2100
+  helperPath: .hometruth/hue-proxy/dtls
+  idleTimeoutMs: 15000
+
+targets:
+  - id: other-light
+    kind: hometruth
+    url: http://127.0.0.1:3000
+    deviceId: replace-with-your-light-id
+    minIntervalMs: 200
+  - id: led-strip
+    kind: wled
+    url: http://10.77.0.99
+    segment: 0
+    minIntervalMs: 40
+  - id: event-bus
+    kind: mqtt
+    url: mqtt://127.0.0.1:1883
+    topic: hometruth/hue-proxy/events
+    # usernameEnv: HUE_MQTT_USERNAME
+    # passwordEnv: HUE_MQTT_PASSWORD
+  # - id: automation
+  #   kind: webhook
+  #   url: https://your-service.example/hue-events
+  #   tokenEnv: HUE_WEBHOOK_TOKEN
+
+routes:
+  - id: mirror-color
+    sources: [light/replace-with-hue-light-uuid]
+    targets: [other-light, led-strip]
+    fields: [color, colorTemperatureKelvin, brightnessPercent, on]
+    brightnessScale: 1
+    saturationGain: 1
+    gamma: 1
+    # color: '#ff6600' # Optional fixed accent color in place of the source hue.
+  - id: entertainment-channel
+    sources: [entertainment/replace-with-area-uuid/0]
+    targets: [led-strip]
+  - id: export-all
+    sources: ['*']
+    targets: [event-bus]

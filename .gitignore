@@ -1,0 +1,9 @@
+# Generated dependencies, test output and compiler caches only.
+# Personal config, credentials, research and runtime data live in the separate
+# private checkout. Unexpected private files here must stay visible to Git.
+node_modules/
+playwright-report/
+test-results/
+__pycache__/
+.DS_Store
+dist/

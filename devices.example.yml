@@ -1,0 +1,270 @@
+# Generic model examples, not an installation inventory. Start with the private
+# template's empty devices.yml and copy only entries for devices you configure.
+# Keep that inventory in a separate private directory. Never put credentials
+# here or in inventory YAML; use the private .hometruth/secrets.yml store.
+# GET /api/models exposes the model IDs and configuration schemas.
+# Add `enabled: false` to an entry to switch a device off without removing it:
+# it stays in the inventory and its Settings tab, but refuses controls and
+# HomeTruth stops polling or connecting to it in the background. Flip it back
+# with `enabled: true` (or remove the key) from the Settings tab, the API
+# (POST /api/devices/{id}/enabled), or `ht enable/disable <id>`.
+schemaVersion: 2
+
+devices:
+  # Local Home Connect AES credentials belong in .hometruth/secrets.yml.
+  # See docs/BOSCH_HOME_CONNECT.md. The child switch locks controls, not heating.
+  # - id: kitchen-cooktop
+  #   name: Kitchen Cooktop
+  #   room: Kitchen
+  #   model: bosch-nitp060uc
+  #   config: { host: 192.168.50.90 }
+  # - id: kitchen-cooktop-child-lock
+  #   name: Cooktop child lock
+  #   room: Kitchen
+  #   model: cooktop-child-lock
+  #   config: { cooktop: kitchen-cooktop }
+
+  # H7021 StringLight: one controller and an ordered array of real bulb devices.
+  # See docs/STRING_LIGHTS.md. Extend this abbreviated list to every installed bulb.
+  # - id: patio-string
+  #   name: Patio string lights
+  #   model: govee-h7021
+  #   config:
+  #     host: 192.168.50.80
+  #     deviceId: "AA:BB:CC:DD:EE:FF:00:11" # LAN discovery identity, not Wi-Fi MAC
+  #     lights: [patio-bulb-01, patio-bulb-02]
+  # - id: patio-bulb-01
+  #   name: Patio bulb 1
+  #   model: govee-h7021-bulb
+  #   config: { stringId: patio-string, index: 0 }
+  # - id: patio-bulb-02
+  #   name: Patio bulb 2
+  #   model: govee-h7021-bulb
+  #   config: { stringId: patio-string, index: 1 }
+  # Govee H5075: this receiver requires a macOS host; discover its Bluetooth UUID.
+  # Run discovery from the private directory; see docs/GOVEE.md.
+  # - id: govee-thermometer
+  #   name: Govee thermometer
+  #   model: govee-h5075
+  #   config:
+  #     peripheralId: "00000000-0000-0000-0000-000000000001"
+  #     bluetoothName: "GVH5075_ABCD"
+  #     staleAfterMs: 120000
+
+  # One AirGradient with CO₂, temperature, humidity, PM1/2.5/10, VOC, and NOx sensors.
+  - id: airgradient
+    name: AirGradient ONE
+    model: airgradient-one
+    config:
+      host: 192.168.50.80
+  - id: kitchen-camera
+    name: Kitchen pet camera
+    model: tkenpro-2k-pet-camera-treat-dispenser
+    config:
+      host: 192.168.50.147
+      serialNumber: "100000001"
+
+  - id: shelly-relay
+    name: Shelly Plus 1 relay
+    model: shelly-plus-1
+    config:
+      host: 192.168.50.228
+
+  - id: desk-keylight
+    name: Desk Key Light Air
+    # Stable identity for UniFi lookup when the current IP is wrong.
+    mac: 02:00:00:79:a4:08
+    model: elgato-key-light-air
+    config:
+      host: 192.168.50.153
+
+  - id: living-room-blaster
+    name: Living room IR/RF blaster
+    model: broadlink-rm4-pro
+    config:
+      host: 192.168.50.154
+
+  # An ESP32/nRF24L01+ bridge running the supported firmware API. Join it to
+  # the chosen Wi-Fi network before provisioning. Its page scans channels and
+  # saves/replays named codes at minimum transmit power.
+  # - id: example-radio
+  #   name: Example radio bridge
+  #   model: esp32-nrf24-bridge
+  #   config:
+  #     baseUrl: http://example-radio.local
+
+  # A Wyze Cam v3 on a local firmware route. Stock firmware has no local path
+  # (it only speaks TUTK P2P with cloud-issued keys), so `firmware` names what
+  # is on the camera: `thingino` (replacement firmware: RTSP, ONVIF, snapshot),
+  # `wyze-rtsp` (Wyze's RTSP beta: rtsp://host:554/stream0/), or
+  # `wz-mini-hacks` (SD-card overlay: rtsp://host:8554/…). The RTSP login goes
+  # in the secrets file as devices.<id>.rtsp; absent means the firmware's
+  # factory login (Thingino: thingino/thingino).
+  - id: porch-camera
+    name: Porch Wyze Cam v3
+    model: wyze-cam-v3
+    config:
+      host: 192.168.50.160
+      firmware: thingino
+      # stream: main        # or sub (360p)
+      # secure: true        # RTSPS on wyze-rtsp (port 322)
+      # rtspPort: 8554      # override the firmware's port
+
+  # Any local RTSP stream: browser video and JPEG snapshots via ffmpeg.
+  # Optional login belongs in secrets as devices.yard-camera.rtsp.
+  # See docs/RTSP.md. No movement, audio or recording controls are inferred.
+  # - id: yard-camera
+  #   name: Yard camera
+  #   model: rtsp-camera
+  #   config:
+  #     host: 192.168.50.170
+  #     port: 8554          # default 554
+  #     path: /live
+  #     timeoutMs: 3000     # RTSP reachability probe timeout
+
+  # Cellular Tactacam REVEAL: polls cloud photos into a saved HomeTruth gallery.
+  # Store devices.trail-camera.email and .password using `ht secrets set`.
+  # Find the cloud cameraId with `bun src/vendors/reveal/cli.ts cameras --device trail-camera`.
+  # See docs/REVEAL.md. This is an unofficial cloud integration, not live video.
+  # - id: trail-camera
+  #   name: Trail camera
+  #   model: tactacam-reveal
+  #   config:
+  #     cameraId: REPLACE_WITH_REVEAL_CAMERA_ID
+  #     pollIntervalMs: 300000
+  #     archiveMaxPages: 100
+
+  # A Philips Hue light streamed to over the bridge's Entertainment DTLS API.
+  # The bridge itself is not a device: its host and credentials (from the Hue
+  # app's "hometruth" registration: applicationKey, clientKey) plus the
+  # entertainment area's id live in .hometruth/secrets.yml as vendors.hue.*,
+  # shared by every hue-entertainment-light device. `lightId` is the light's
+  # CLIP v2 resource id (GET /clip/v2/resource/light on the bridge); `channel`
+  # is this light's channel id within that one entertainment area (GET
+  # /clip/v2/resource/entertainment_configuration on the bridge lists them).
+  - id: living-room-lamp
+    name: Living room lamp
+    model: hue-entertainment-light
+    config:
+      lightId: 00000000-0000-4000-8000-000000000001
+      channel: 0
+
+  # A Sonos speaker (or stereo pair/soundbar) on the LAN, controlled locally
+  # over its own UPnP/SOAP interface on port 1400 — no Sonos account
+  # involved. `host` is that one physical unit's own IP or `.local` name.
+  # Whole-home grouping (joinGroup(<other speaker's host>) / leaveGroup()) is
+  # a runtime operation, not something config describes, since any speaker
+  # can join or leave a group at any time. `say(text)` and a relative
+  # `playUri()` need this server's own LAN address to hand the speaker a URL
+  # to fetch; that is detected automatically, but only once the server is
+  # actually listening (see docs/NETWORK_TOOLS.md or HOMETRUTH_LOCAL_CLOUD_ADDRESS
+  # if detection ever picks the wrong interface). Find a speaker's IP from
+  # your router, the Sonos app (Settings > System > About My System), or by
+  # running Sonos SSDP discovery from a REPL:
+  # `bun -e 'import("./src/protocols/sonos/discovery").then(m => m.discoverSonosSpeakers().then(console.log))'`
+  #
+  # `group` is a dashboard-only label: every device sharing the same `group`
+  # string renders as one card on the home page (e.g. a stereo pair, or a
+  # home theater set's soundbar + surrounds + sub), and the individual units
+  # only show up after clicking into that group's page. Omit it for a
+  # standalone speaker. This does not affect Sonos's own live grouping —
+  # only which HomeTruth device cards get collapsed together on the
+  # dashboard.
+  - id: living-room-sonos
+    name: Living room Sonos
+    model: sonos
+    config:
+      host: 192.168.50.170
+      # group: Living Room
+
+
+  # A Samsung The Frame, driven entirely by the set's own local API: the
+  # unauthenticated device read on port 8001 for power and identity, and two
+  # token-authenticated WebSocket channels on 8002 for keys and art mode. No
+  # Samsung account, no SmartThings, and no infrared — an IR blaster is a
+  # separate device with its own codes.
+  #
+  # The first control HomeTruth sends makes the set show an on-screen prompt.
+  # Accept it once: the token the set issues is written to
+  # `.hometruth/samsung/tokens/<id>.json` and every later connection carries
+  # it, so it never prompts again. Losing that file costs one more prompt and
+  # nothing else, which is why it is not a secret you can type in here.
+  #
+  # Two things about a Frame are worth knowing before wiring it to anything:
+  # a power *click* moves between watching and art mode rather than turning
+  # the set off, so `turnOff` holds the power key instead; and the set reports
+  # its power state and nothing else, so volume, mute, and the current input
+  # are commands with no reading behind them and are never shown as one.
+  - id: living-room-frame
+    name: Living room Frame
+    model: samsung-frame
+    config:
+      host: 192.168.50.60
+      # The name the set shows in its pairing prompt and its device list.
+      # clientName: HomeTruth
+      # timeoutMs: 8000
+
+  # Logical devices can refer to physical or logical devices declared anywhere
+  # in this file. Uncomment after defining the referenced Hue lights above.
+  # - id: studio-lights
+  #   name: Studio lights
+  #   model: light-group
+  #   config:
+  #     members: [hue-left, hue-center, hue-right]
+  # - id: recording-mode
+  #   name: Recording mode
+  #   model: synthetic-switch
+  #   config:
+  #     members:
+  #       - { device: studio-lights, on: on, off: off }
+  #       - { device: hallway-light, on: off, off: on }
+
+  # A learned Broadlink command can become a stateless, optionally held
+  # Button. Use the stable code id returned by the blaster JSON/API.
+  # - id: candles-on
+  #   name: Candles on
+  #   model: action-button
+  #   config: { device: living-room-blaster, savedCodeId: "<saved-code-id>" }
+  # - id: candles-off
+  #   name: Candles off
+  #   model: action-button
+  #   config: { device: living-room-blaster, savedCodeId: "<saved-code-id>" }
+  # - id: candles
+  #   name: Candles
+  #   model: optimistic-switch
+  #   config: { onButton: candles-on, offButton: candles-off, initialState: off }
+
+  # Aqara HomeKit addresses and ports come from _hap._tcp discovery.
+  # Pairing keys are stored privately, never in this inventory.
+  - id: aqara-hub
+    name: Aqara Hub M2
+    model: aqara-hub-m2
+    # After direct Matter commissioning, use { host: 192.168.50.50, matterPeerId: "peer1" } instead.
+    config: { host: 192.168.50.50, port: 12345, homekitId: "AA:BB:CC:DD:EE:01" }
+  - id: aqara-presence
+    name: Aqara Presence Sensor FP2
+    model: aqara-presence-sensor-fp2
+    config: { host: 192.168.50.51, port: 12346, homekitId: "AA:BB:CC:DD:EE:02" }
+  - id: aqara-door
+    name: Door sensor
+    model: aqara-door-window-sensor
+    config: { hub: aqara-hub, serialNumber: "REPLACE_WITH_SENSOR_SERIAL" }
+
+  # Ring Smart Lighting. Ring has no local API: the Bridge is reached only
+  # through Ring's cloud, so these entries carry account ids rather than a
+  # host, and both go dark when the internet does.
+  # Store the account first, then run `bun src/vendors/ring/discover.ts` for
+  # the locationId and each fixture's zid:
+  #   npx -p ring-client-api ring-auth-cli        # email, password, 2FA code
+  #   ht secrets set vendors.ring.refreshToken    # paste the token it prints
+  - id: ring-bridge
+    name: Ring Bridge
+    model: ring-bridge
+    config: { locationId: "REPLACE_WITH_RING_LOCATION_ID" }
+  - id: garden-spotlight
+    name: Garden Spotlight
+    room: Backyard
+    # Any Ring Smart Lighting fixture on the Bridge: Spotlight, Pathlight,
+    # Steplight, Floodlight. The account says which one it actually is.
+    model: ring-smart-light
+    config: { bridge: ring-bridge, zid: "REPLACE_WITH_FIXTURE_ZID" }

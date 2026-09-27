@@ -1,0 +1,25 @@
+title = "HomeTruth public source"
+[extend]
+useDefault = true
+
+# Exact synthetic protocol vectors only; a new value in the same test still fails.
+[[allowlists]]
+description = "Synthetic hexadecimal test vectors and SHA-256 of the literal test password secret"
+condition = "AND"
+paths = ['''(^|/)src/.*\.test\.ts$''']
+regexTarget = "secret"
+regexes = ['''^0123456789abcdef(?:01234567(?:89(?:abcdef)?)?)?$''', '''^2bb80d537b1da3e38bd30361aa855686bde0eacd7162fef6a25fe97bf527a25b$''']
+
+[[allowlists]]
+description = "Expected ONVIF digest calculated from the test username, password and fixed nonce"
+condition = "AND"
+paths = ['''(^|/)src/protocols/onvif/client\.test\.ts$''']
+regexTarget = "secret"
+regexes = ['''^kCoii/cHIVf0\+FVa6MKqtEu6RvE=$''']
+
+[[allowlists]]
+description = "TypeScript parameter type names, not string credentials"
+condition = "AND"
+paths = ['''(^|/)src/devices/(cameras/wyze-cam-v3|treat-dispensers/tkenpro-2k-pet-camera-treat-dispenser)/index\.ts$''']
+regexTarget = "secret"
+regexes = ['''^(WyzeCamV3Secrets|TkenproPet3TSecrets)$''']
