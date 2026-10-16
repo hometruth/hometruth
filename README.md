@@ -1,11 +1,8 @@
 # HomeTruth
 
-[hometruth.ai](https://hometruth.ai/) <-- this is mostly written by a human, for humans
+[hometruth.ai](https://hometruth.ai/) ⬅️ this is mostly written by a human, for humans
 
-this is mostly written by AI, for AI 
-      |
-      |
-      V
+this is mostly written by AI, for AI ⬇️
 
 Paste this into your coding agent:
 
