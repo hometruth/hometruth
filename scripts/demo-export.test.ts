@@ -13,7 +13,8 @@ async function directory() {
 }
 
 test("demo arguments default to anonymized installation-local output", () => {
-  expect(demoExportOptions([])).toEqual({ output: ".hometruth/demo-export", basePath: "/demo", includeNames: false });
+  expect(demoExportOptions([])).toEqual({ output: ".hometruth/demo-export", basePath: "/demo", includeNames: false, showcase: false });
+  expect(demoExportOptions(["--showcase"])).toEqual({ output: ".hometruth/demo-export", basePath: "/demo", includeNames: true, showcase: true });
   expect(demoExportOptions(["--output", "export", "--include-names", "--base-path", "/play/home"]).includeNames).toBe(true);
   for (const value of ["/", "//host", "/demo/", "/demo/../source", "https://example.com", "/demo?x=1"]) expect(() => demoExportOptions(["--base-path", value])).toThrow();
   expect(() => demoExportOptions(["--output"])).toThrow();
@@ -84,4 +85,23 @@ test("installation command exports without starting a server", async () => {
   const command = await siteCommand(root, "demo:export", ["--output", "demo"]);
   expect(command.cwd).toBe(root);
   expect(command.argv.slice(-3)).toEqual([join(import.meta.dir, "demo-export.ts"), "--output", "demo"]);
+});
+
+test("showcase export never reads the installation inventory", async () => {
+  const installation = await directory();
+  const output = join(installation, "showcase");
+  // Deliberately missing inventory: showcase generation must not attempt to open it.
+  const child = Bun.spawn([process.execPath, join(import.meta.dir, "demo-export.ts"), "--showcase", "--output", output], {
+    cwd: installation,
+    env: { ...process.env, HOMETRUTH_DEVICES: join(installation, "must-not-read.yml") },
+    stdout: "pipe", stderr: "pipe",
+  });
+  const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+  expect(exit, stderr).toBe(0);
+  expect(stdout).toContain("Public synthetic showcase");
+  expect(stdout).not.toContain("must-not-read");
+  const html = await Bun.file(join(output, "demo/index.html")).text();
+  expect(html.includes("Great room")).toBe(true);
+  expect(html.includes("Pendant lights")).toBe(true);
+  expect(await Bun.file(join(output, "demo/devices.html")).exists()).toBe(true);
 });

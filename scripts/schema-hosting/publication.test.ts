@@ -95,7 +95,7 @@ test("demo pages and assets are static, canonical and disconnected, with unchang
     },
   };
   const env = { ASSETS: assets };
-  for (const [path, file] of [["/demo", "/demo/index.html"], ["/demo/devices/demo-device-1.html", "/demo/devices/demo-device-1.html"], ["/demo/schemas/light.html", "/demo/schemas/light.html"], ["/demo/assets/runtime.js", "/demo/assets/runtime.js"]]) {
+  for (const [path, file] of [["/", "/demo/index.html"], ["/demo/devices/demo-device-1.html", "/demo/devices/demo-device-1.html"], ["/demo/schemas/light.html", "/demo/schemas/light.html"], ["/demo/assets/runtime.js", "/demo/assets/runtime.js"]]) {
     const response = await publicWorker.fetch(new Request(`https://hometruth.ai${path}?anything=value`), env);
     expect(response.status).toBe(200);
     expect(await response.text()).toBe("static demo");
@@ -107,21 +107,21 @@ test("demo pages and assets are static, canonical and disconnected, with unchang
     expect(response.headers.get("Cache-Control")).toBe("public, max-age=300, must-revalidate, no-transform");
     expect(response.headers.has("Set-Cookie")).toBe(false);
   }
-  const head = await publicWorker.fetch(new Request("https://hometruth.ai/demo", { method: "HEAD" }), env);
+  const head = await publicWorker.fetch(new Request("https://hometruth.ai/", { method: "HEAD" }), env);
   expect(head.status).toBe(200);
   expect(await head.text()).toBe("");
   expect((await publicWorker.fetch(new Request("https://hometruth.ai/demo/missing.html"), env)).status).toBe(404);
   const before = requests.length;
-  for (const path of ["/demo/", "/demo/index", "/demo/index.html", "/demo/devices/demo-device-1/", "/demo/devices/demo-device-1", "/demo/.env", "/demo/_headers", "/demo/assets/source.ts", "/demo/%61ssets/runtime.js", "/.hometruth-demo-export.json", "/api/devices", "/", "/demonstration"]) {
+  for (const path of ["/demo/", "/demo/index", "/demo/index.html", "/demo/devices/demo-device-1/", "/demo/devices/demo-device-1", "/demo/.env", "/demo/_headers", "/demo/assets/source.ts", "/demo/%61ssets/runtime.js", "/.hometruth-demo-export.json", "/api/devices", "/demo", "/demonstration"]) {
     const response = await publicWorker.fetch(new Request(`https://hometruth.ai${path}`), env);
     expect(response.status, path).toBe(404);
     expect(response.headers.has("Location")).toBe(false);
   }
   for (const method of ["POST", "PUT", "PATCH", "DELETE", "OPTIONS"]) {
-    expect((await publicWorker.fetch(new Request("https://hometruth.ai/demo", { method }), env)).status).toBe(405);
+    expect((await publicWorker.fetch(new Request("https://hometruth.ai/", { method }), env)).status).toBe(405);
   }
   expect(requests.length).toBe(before);
-  expect((await publicWorker.fetch(new Request("https://hometruth.ai/demo"))).status).toBe(404);
+  expect((await publicWorker.fetch(new Request("https://hometruth.ai/"))).status).toBe(404);
   for (const path of ["/schemas/", "/schemas/light"]) {
     const request = new Request(`https://hometruth.ai${path}`);
     const expected = worker.fetch(request);
@@ -134,7 +134,7 @@ test("demo pages and assets are static, canonical and disconnected, with unchang
 
 test("demo hosting never forwards static asset redirects", async () => {
   const publicWorker = createPublicWorker([]);
-  const response = await publicWorker.fetch(new Request("https://hometruth.ai/demo"), {
+  const response = await publicWorker.fetch(new Request("https://hometruth.ai/"), {
     ASSETS: { async fetch() { return Response.redirect("https://example.invalid", 301); } },
   });
   expect(response.status).toBe(404);

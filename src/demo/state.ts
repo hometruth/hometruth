@@ -1,4 +1,5 @@
 /** In-memory device simulator. It imports no device implementations or server code. */
+import type { ScenePresentation } from "../ui/scene-model";
 import type { DeviceGroup } from "../schemas";
 import type { RegisteredDevice } from "../site";
 import type { NodeId, NodeRecord } from "../state/protocol";
@@ -6,6 +7,8 @@ import type { NodeId, NodeRecord } from "../state/protocol";
 export interface DemoData {
   readonly version: 1;
   readonly basePath: string;
+  readonly homePath?: "/";
+  readonly presentation?: ScenePresentation;
   readonly devices: readonly RegisteredDevice[];
   readonly records: readonly NodeRecord[];
   readonly groups: readonly DeviceGroup[];
@@ -19,7 +22,7 @@ type Document = Record<string, any>;
 const object = (value: unknown): Document => value !== null && typeof value === "object" && !Array.isArray(value) ? value as Document : {};
 const copy = <T>(value: T): T => structuredClone(value);
 const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
-const fields = ["on", "value", "brightnessPercent", "colorTemperatureKelvin", "color", "power", "artMode", "volumePercent", "muted", "playback", "input", "app", "scene", "effect", "childLocked", "timerSeconds", "listening", "show"] as const;
+const fields = ["on", "value", "brightnessPercent", "colorTemperatureKelvin", "color", "power", "artMode", "volumePercent", "muted", "playback", "input", "app", "scene", "effect", "childLocked", "timerSeconds", "listening", "show", "detail"] as const;
 type Delta = [number, number, number, unknown];
 const COOKIE_NAME = "ht_demo_state";
 export const COOKIE_CHUNKS = 4;
@@ -164,6 +167,7 @@ export class DemoState {
       const choices = capability.actions?.[field === "input" ? "setInput" : "launchApp"]?.[field === "input" ? "inputs" : "apps"];
       return Array.isArray(choices) && choices.some(choice => same(choice, value));
     }
+    if (field === "detail") return value === "Cleaning" || value === "Docked";
     if (field === "effect") return typeof value === "string" && value.length <= 100;
     if (field === "scene") return typeof object(value).sceneId === "string" && JSON.stringify(value).length <= 200 && Object.keys(object(value)).every(key => ["sceneId", "status", "name"].includes(key));
     if (field === "show") return JSON.stringify(value).length <= 200 && Object.keys(object(value)).every(key => ["showId", "presetId", "status"].includes(key));
@@ -268,6 +272,17 @@ export class DemoState {
       // Stateless actions acknowledge the pretend action and publish a fresh frame.
       case "press": case "say": case "leaveGroup": case "joinGroup": case "next": case "previous": case "send": case "learn": case "dispense": case "start": case "cancel": case "stopEffect": case "snapshot": case "stream": break;
       default: throw new DemoError("This action is not simulated in the demo.", 501);
+    }
+    const binding = this.snapshot.presentation?.devices[node.slice("device/".length)];
+    if (control === "press" && binding?.target && ["vacuum-start", "vacuum-dock"].includes(binding.effect ?? "")) {
+      const target = this.read(`device/${binding.target}`);
+      if (target) {
+        const targetDocument = object(copy(target.value));
+        const sensor = object(object(targetDocument.capabilities).sensor);
+        const stamp = this.now();
+        sensor.state = { ...object(sensor.state), detail: binding.effect === "vacuum-start" ? "Cleaning" : "Docked", observedAt: stamp };
+        this.#records.set(target.node, { ...target, value: targetDocument, version: ++this.#version, observedAt: stamp, updatedAt: stamp });
+      }
     }
     const stamp = this.now();
     capability.state = { ...state, availability: "online", observedAt: stamp };

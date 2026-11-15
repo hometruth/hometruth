@@ -5,6 +5,7 @@ import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, writeFi
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { loadDevicesConfig } from "../src/config/devices";
 import { exportDemo } from "../src/demo/export";
+import { FALLINGWATER_CONFIG } from "../src/demo/showcase";
 import { runtimePaths } from "../src/runtime/paths";
 
 const SOURCE = resolve(import.meta.dir, "..");
@@ -13,17 +14,19 @@ export function demoExportOptions(args: readonly string[]) {
   let output = ".hometruth/demo-export";
   let basePath = "/demo";
   let includeNames = false;
+  let showcase = false;
   for (let index = 0; index < args.length; index++) {
     const flag = args[index];
     if (flag === "--include-names") includeNames = true;
+    else if (flag === "--showcase") { showcase = true; includeNames = true; }
     else if (flag === "--output" || flag === "--base-path") {
       const value = args[++index];
       if (!value || value.startsWith("--")) throw new Error(`Missing value for ${flag}`);
       if (flag === "--output") output = value; else basePath = value;
-    } else throw new Error("Usage: demo:export [--output directory] [--base-path /demo] [--include-names]");
+    } else throw new Error("Usage: demo:export [--output directory] [--base-path /demo] [--include-names] [--showcase]");
   }
   if (!/^\/[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_-]+)*$/.test(basePath)) throw new Error("Use a base path such as /demo, without a trailing slash.");
-  return { output, basePath, includeNames };
+  return { output, basePath, includeNames, showcase };
 }
 
 function within(parent: string, child: string): boolean {
@@ -122,13 +125,15 @@ if (import.meta.main) {
   try {
     runtimePaths(SOURCE, process.cwd());
     const options = demoExportOptions(process.argv.slice(2));
-    const configPath = process.env.HOMETRUTH_DEVICES ?? resolve("devices.yml");
-    let config;
-    try { config = await loadDevicesConfig(configPath); }
-    catch { throw new Error("Could not read valid devices.yml; configuration contents are withheld."); }
+    let config = FALLINGWATER_CONFIG;
+    if (!options.showcase) {
+      const configPath = process.env.HOMETRUTH_DEVICES ?? resolve("devices.yml");
+      try { config = await loadDevicesConfig(configPath); }
+      catch { throw new Error("Could not read valid devices.yml; configuration contents are withheld."); }
+    }
     const output = await writeDemoOutput(SOURCE, resolve(options.output), async output => { await exportDemo({ ...options, config, output }); });
-    console.log(`Static demo exported to ${output}. Serve this directory with a static host and open ${options.basePath}.`);
-    console.log(options.includeNames ? "Display names are included; review the export before publishing." : "Display names and identifiers are anonymized; all controls are simulated.");
+    console.log(`Static demo exported to ${output}. Serve this directory with a static host and open ${options.showcase ? "/" : options.basePath}.`);
+    console.log(options.showcase ? "Public synthetic showcase; all names, readings, and controls are simulated." : options.includeNames ? "Display names are included; review the export before publishing." : "Display names and identifiers are anonymized; all controls are simulated.");
   } catch (error) {
     console.error(error instanceof Error ? error.message : "Demo export failed.");
     process.exitCode = 1;

@@ -5,12 +5,16 @@ import { deviceKindOf } from "../site";
 import { MODELS } from "../registry";
 import type { DeviceModel } from "../models/device";
 import type { NodeRecord } from "../state/protocol";
+import type { ScenePresentation } from "../ui/scene-model";
 import type { GraphContents } from "../graph/graph";
 import type { PlacedGraphScene } from "../graph/scene-layout";
 
 export interface DemoSnapshot {
   version: 1;
   basePath: string;
+  /** Public showcases place their overview at the host root. */
+  homePath?: "/";
+  presentation?: ScenePresentation;
   devices: RegisteredDevice[];
   records: NodeRecord[];
   groups: DeviceGroup[];

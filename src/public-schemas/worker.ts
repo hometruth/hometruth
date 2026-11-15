@@ -24,7 +24,7 @@ export const DEMO_CONTENT_SECURITY_POLICY = [
 
 /** Map the single public URL for each exported page to its static file. */
 function demoAssetPath(path: string): string | undefined {
-  if (path === "/demo") return "/demo/index.html";
+  if (path === "/") return "/demo/index.html";
   if (!path.startsWith("/demo/") || path.endsWith("/") || path.includes("%") || path.includes("//")) return;
   if (path.split("/").some(segment => segment.startsWith(".") || segment.startsWith("_"))) return;
   if (path.startsWith("/demo/assets/")) {
@@ -40,7 +40,7 @@ export function createPublicWorker(documents: readonly PublicSchemaDocument[]) {
   return {
     async fetch(request: Request, env?: { ASSETS: Pick<PublicHostingEnv["ASSETS"], "fetch"> }): Promise<Response> {
       const url = new URL(request.url);
-      if (url.pathname !== "/demo" && !url.pathname.startsWith("/demo/")) return schemas.fetch(request);
+      if (url.pathname !== "/" && url.pathname !== "/demo" && !url.pathname.startsWith("/demo/")) return schemas.fetch(request);
       const headers = new Headers({
         "Content-Security-Policy": DEMO_CONTENT_SECURITY_POLICY,
         "X-Content-Type-Options": "nosniff",

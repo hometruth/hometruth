@@ -164,7 +164,7 @@ export function installDemo(document: Document, window: Window & typeof globalTh
   });
   const save = () => {
     const value = state.persist();
-    for (const cookie of demoCookieWrites(value, snapshot.basePath, window.location.protocol === "https:")) document.cookie = cookie;
+    for (const cookie of demoCookieWrites(value, snapshot.homePath ?? snapshot.basePath, window.location.protocol === "https:")) document.cookie = cookie;
     const output = document.querySelector("[data-demo-status]");
     if (output) output.textContent = value && readDemoCookie(document.cookie) !== value ? "Cookies are blocked. Changes last until you leave this page." : "Pretend controls · saved in this browser";
   };

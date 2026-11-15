@@ -31,6 +31,8 @@ test("static pages operate without APIs and keep pretend state across navigation
     const page = await context.newPage();
     page.on("pageerror", error => errors.push(error.message));
     await page.goto(`${server.url.origin}/demo`);
+    await page.getByRole("link", { name: "Devices", exact: true }).click();
+    expect(new URL(page.url()).pathname).toBe("/demo/devices.html");
     await page.locator("a.row").filter({ hasText: "Shelly Plus 1 1" }).first().click();
     const turnOn = page.locator('ht-switch [data-action="turnOn"]');
     await turnOn.waitFor({ state: "visible" });
@@ -52,10 +54,18 @@ test("static pages operate without APIs and keep pretend state across navigation
     await brightness.waitFor({ state: "visible" });
     await page.waitForFunction(() => (window as unknown as { ht: { state: { connection: string } } }).ht.state.connection === "live");
     expect(await brightness.inputValue()).toBe("37");
+    const action = page.locator('[data-demo-object-api] details').filter({ has: page.locator('[data-demo-api-control$="/setBrightness"]') }).last();
+    await action.locator("summary").click();
+    await action.locator("textarea").fill('{"value":45}');
+    await action.getByRole("button", { name: "Run simulated setBrightness" }).click();
+    await page.waitForFunction(() => (document.querySelector('[data-demo-object-json]')?.textContent ?? '').includes('"brightnessPercent": 45'));
+    expect(await brightness.inputValue()).toBe("45");
     await page.getByRole("button", { name: "Reset demo", exact: true }).click();
     await page.waitForTimeout(150);
     expect(await brightness.inputValue()).toBe("65");
-    await page.getByRole("link", { name: "Graph", exact: true }).first().click();
+    await page.getByRole("link", { name: "Explore in graph", exact: true }).click();
+    await page.waitForFunction(() => document.querySelector('[data-graph-panel]:not([hidden]) h2')?.textContent === "Elgato Key Light Air 1");
+    expect(await page.locator('[data-graph-panel]:visible [data-demo-graph-structure]').textContent()).toContain("capability");
     const cards = page.locator(".graph-card:visible");
     const initialCount = await cards.count();
     await page.locator("#graph-search").fill("Shelly");

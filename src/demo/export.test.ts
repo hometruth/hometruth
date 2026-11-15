@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createDemoSnapshot, demoBasePath, DEMO_SNAPSHOT_TIME } from "./model";
 import { exportDemo, renderDemoPages } from "./export";
+import { FALLINGWATER_CONFIG } from "./showcase";
 import { MODELS } from "../registry";
 import { validators } from "../validation";
 import type { DevicesConfig } from "../schemas";
@@ -35,6 +36,7 @@ test("every registered model renders without creating a device or contacting a s
   const pages = await renderDemoPages(snapshot);
   for (const device of snapshot.devices) expect(pages.get(device.page)).toContain(device.name);
   expect(pages.get("/graph")).toContain("graph-card");
+  expect(pages.get("/")).not.toBe(pages.get("/devices"));
 });
 
 test("static graph includes every device even when one room exceeds the live graph display cap", async () => {
@@ -54,11 +56,20 @@ test("export contains portable pages, local bundles, and a transport-blocking po
   try {
     const result = await exportDemo({ config, output, basePath: "/demo" });
     const html = await Bun.file(join(output, "demo/index.html")).text();
-    expect(html).toContain('href="/demo/groups/group-1.html"');
+    const inventory = await Bun.file(join(output, "demo/devices.html")).text();
+    expect(inventory).toContain('href="/demo/groups/group-1.html"');
+    expect(inventory).not.toBe(html);
+    expect(result.pages).toBe(result.files.filter(file => file.endsWith(".html")).length);
+    const overview = JSON.parse(/id="ht-overview-data"[^>]*>([\s\S]*?)<\/script>/.exec(html)![1]!);
+    expect(overview.devices[0].page).toBe("/demo/devices/demo-device-1.html");
+    expect(html).not.toContain('data-house-canvas');
+    expect(html).not.toContain('data-demo-banner');
+    expect(result.snapshot.graph?.nodes.filter(node => node.kind === "capability").every(node => node.page.endsWith(".html#demo-object-api"))).toBe(true);
+    expect(html).toMatch(/src="\/demo\/assets\/browser-overview-[a-f0-9]{12}\.js"/);
     expect(html).toContain('id="ht-demo"');
     expect(html).toContain("connect-src 'none'");
     expect(html).toContain("form-action 'none'");
-    expect(html).toContain("Static demo · Euclid · English");
+    expect(html).not.toContain("Static demo · Wright · English");
     expect(html).not.toMatch(/<form\b[^>]*data-preferences/);
     expect(html.indexOf('src="/demo/assets/demo.js"')).toBeLessThan(html.indexOf("window.ht ="));
     expect(result.files.every(file => file.startsWith("/demo/"))).toBe(true);
@@ -72,6 +83,24 @@ test("export contains portable pages, local bundles, and a transport-blocking po
       }
     }
   } finally { await rm(output, { recursive: true, force: true }); }
+});
+
+test("demo object exploration links capability schemas and runs through the existing browser simulator", async () => {
+  const snapshot = createDemoSnapshot(config);
+  const pages = await renderDemoPages(snapshot);
+  const html = pages.get(snapshot.devices[0]!.page)!;
+  expect(html).toContain('id="demo-object-api"');
+  expect(html).toContain('data-demo-object-json');
+  expect(html).toContain('GET /api/devices/demo-device-1');
+  expect(html).toContain('POST /api/devices/demo-device-1/capabilities/light/controls/setBrightness');
+  expect(html).toContain('data-demo-api-control="/api/devices/demo-device-1/capabilities/light/controls/setBrightness"');
+  expect(html).toContain('href="/schemas/light"');
+  expect(html).toContain('/graph?selected=');
+  expect(pages.has("/schemas/light")).toBe(true);
+  expect(snapshot.graph?.nodes.some(node => node.kind === "capability")).toBe(true);
+  expect(snapshot.graph?.edges.some(edge => edge.relation === "instanceOf")).toBe(true);
+  expect(snapshot.graph?.edges.some(edge => edge.relation === "members")).toBe(true);
+  expect(pages.get("/graph")).toContain('data-demo-graph-structure');
 });
 
 async function exportedFiles(directory: string, prefix = ""): Promise<string[]> {
@@ -94,7 +123,7 @@ test("exports are byte-identical across clocks, randomness, output directories, 
     deviceGroups: [{ id: "fixture-group", name: "Fixture group", asSwitch: true, criteria: { room: "Ä room" } }],
   };
   try {
-    for (const [name, fixture] of Object.entries({ populated, empty: { schemaVersion: 2, devices: [] } satisfies DevicesConfig })) {
+    for (const [name, fixture] of Object.entries({ populated, empty: { schemaVersion: 2, devices: [] } satisfies DevicesConfig, showcase: FALLINGWATER_CONFIG })) {
       const outputs: string[] = [];
       for (const [index, environment] of [
         { at: "1999-12-31T23:59:50.000Z", random: 0.1, TZ: "America/Los_Angeles", LANG: "en_US.UTF-8", NODE_ENV: "development", HOMETRUTH_RELOAD_VERSION: "" },
@@ -112,7 +141,7 @@ test("exports are byte-identical across clocks, randomness, output directories, 
           };
           Math.random = () => ${environment.random};
           const { exportDemo } = await import(${JSON.stringify(exportModule)});
-          const result = await exportDemo({config:${JSON.stringify(fixture)},output:${JSON.stringify(output)},basePath:'/play/demo',includeNames:true});
+          const result = await exportDemo({config:${JSON.stringify(fixture)},output:${JSON.stringify(output)},basePath:'/play/demo',includeNames:true,showcase:${name === "showcase"}});
           if (result.snapshot.graph.generatedAt !== ${JSON.stringify(DEMO_SNAPSHOT_TIME)}) throw new Error('Snapshot time was not fixed');
         `;
         const child = Bun.spawn([process.execPath, "--eval", source], {
