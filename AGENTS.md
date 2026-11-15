@@ -13,6 +13,8 @@
 ## Service management
 
 - AI agents may start, stop, and restart HomeTruth development and production servers, supervisors, background services, and development watchers as needed to complete requested work. This includes starting services for browser checks and tests.
+- Deploy each completed change to the installation's production target and verify the live result before reporting completion, unless the user explicitly requests otherwise. This is standing deployment authorization; routine deployments do not require another confirmation.
+- Read the installation repository's deployment notes in `research/operations/` for the target and release procedure. Complete the required release checks, exclude unrelated workspace changes, and keep installation-specific deployment details in that private repository.
 
 ## Greenfield development
 

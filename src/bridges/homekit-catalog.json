@@ -1,0 +1,3449 @@
+[
+  {
+    "id": "AirPurifier",
+    "name": "Air purifier",
+    "service": "AirPurifier",
+    "category": 19,
+    "protocols": [
+      "homekit"
+    ],
+    "characteristics": [
+      {
+        "key": "Active",
+        "name": "Active",
+        "format": "uint8",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "CurrentAirPurifierState",
+        "name": "Current Air Purifier State",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 2,
+        "step": 1,
+        "values": [
+          0,
+          1,
+          2
+        ]
+      },
+      {
+        "key": "TargetAirPurifierState",
+        "name": "Target Air Purifier State",
+        "format": "uint8",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "LockPhysicalControls",
+        "name": "Lock Physical Controls",
+        "format": "uint8",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ],
+        "configuration": true
+      },
+      {
+        "key": "RotationSpeed",
+        "name": "Rotation Speed",
+        "format": "float",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false,
+        "unit": "percentage",
+        "minimum": 0,
+        "maximum": 100,
+        "step": 1
+      },
+      {
+        "key": "SwingMode",
+        "name": "Swing Mode",
+        "format": "uint8",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      }
+    ]
+  },
+  {
+    "id": "AirQualitySensor",
+    "name": "Air quality sensor",
+    "service": "AirQualitySensor",
+    "category": 10,
+    "protocols": [
+      "homekit"
+    ],
+    "characteristics": [
+      {
+        "key": "AirQuality",
+        "name": "Air Quality",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 5,
+        "step": 1,
+        "values": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ]
+      },
+      {
+        "key": "NitrogenDioxideDensity",
+        "name": "Nitrogen Dioxide Density",
+        "format": "float",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1000,
+        "step": 1
+      },
+      {
+        "key": "OzoneDensity",
+        "name": "Ozone Density",
+        "format": "float",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1000,
+        "step": 1
+      },
+      {
+        "key": "PM10Density",
+        "name": "PM10 Density",
+        "format": "float",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1000,
+        "step": 1
+      },
+      {
+        "key": "PM2_5Density",
+        "name": "PM2.5 Density",
+        "format": "float",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1000,
+        "step": 1
+      },
+      {
+        "key": "SulphurDioxideDensity",
+        "name": "Sulphur Dioxide Density",
+        "format": "float",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1000,
+        "step": 1
+      },
+      {
+        "key": "VOCDensity",
+        "name": "VOC Density",
+        "format": "float",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1000,
+        "step": 1
+      },
+      {
+        "key": "StatusActive",
+        "name": "Status Active",
+        "format": "bool",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false
+      },
+      {
+        "key": "StatusFault",
+        "name": "Status Fault",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "StatusLowBattery",
+        "name": "Status Low Battery",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "StatusTampered",
+        "name": "Status Tampered",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      }
+    ]
+  },
+  {
+    "id": "Battery",
+    "name": "Battery",
+    "service": "Battery",
+    "category": 10,
+    "protocols": [
+      "homekit"
+    ],
+    "characteristics": [
+      {
+        "key": "StatusLowBattery",
+        "name": "Status Low Battery",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "BatteryLevel",
+        "name": "Battery Level",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "unit": "percentage",
+        "minimum": 0,
+        "maximum": 100,
+        "step": 1
+      },
+      {
+        "key": "ChargingState",
+        "name": "Charging State",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 2,
+        "step": 1,
+        "values": [
+          0,
+          1,
+          2
+        ]
+      }
+    ]
+  },
+  {
+    "id": "CarbonDioxideSensor",
+    "name": "Carbon dioxide sensor",
+    "service": "CarbonDioxideSensor",
+    "category": 10,
+    "protocols": [
+      "homekit"
+    ],
+    "characteristics": [
+      {
+        "key": "CarbonDioxideDetected",
+        "name": "Carbon Dioxide Detected",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "CarbonDioxideLevel",
+        "name": "Carbon Dioxide Level",
+        "format": "float",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 100000,
+        "step": 1
+      },
+      {
+        "key": "CarbonDioxidePeakLevel",
+        "name": "Carbon Dioxide Peak Level",
+        "format": "float",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 100000,
+        "step": 1
+      },
+      {
+        "key": "StatusActive",
+        "name": "Status Active",
+        "format": "bool",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false
+      },
+      {
+        "key": "StatusFault",
+        "name": "Status Fault",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "StatusLowBattery",
+        "name": "Status Low Battery",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "StatusTampered",
+        "name": "Status Tampered",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      }
+    ]
+  },
+  {
+    "id": "CarbonMonoxideSensor",
+    "name": "Carbon monoxide sensor",
+    "service": "CarbonMonoxideSensor",
+    "category": 10,
+    "protocols": [
+      "homekit"
+    ],
+    "characteristics": [
+      {
+        "key": "CarbonMonoxideDetected",
+        "name": "Carbon Monoxide Detected",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "CarbonMonoxideLevel",
+        "name": "Carbon Monoxide Level",
+        "format": "float",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 100,
+        "step": 1
+      },
+      {
+        "key": "CarbonMonoxidePeakLevel",
+        "name": "Carbon Monoxide Peak Level",
+        "format": "float",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 100,
+        "step": 1
+      },
+      {
+        "key": "StatusActive",
+        "name": "Status Active",
+        "format": "bool",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false
+      },
+      {
+        "key": "StatusFault",
+        "name": "Status Fault",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "StatusLowBattery",
+        "name": "Status Low Battery",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "StatusTampered",
+        "name": "Status Tampered",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      }
+    ]
+  },
+  {
+    "id": "ContactSensor",
+    "name": "Contact sensor",
+    "service": "ContactSensor",
+    "category": 10,
+    "protocols": [
+      "homekit",
+      "matter"
+    ],
+    "characteristics": [
+      {
+        "key": "ContactSensorState",
+        "name": "Contact Sensor State",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "StatusActive",
+        "name": "Status Active",
+        "format": "bool",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false
+      },
+      {
+        "key": "StatusFault",
+        "name": "Status Fault",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "StatusLowBattery",
+        "name": "Status Low Battery",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "StatusTampered",
+        "name": "Status Tampered",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      }
+    ]
+  },
+  {
+    "id": "Door",
+    "name": "Door",
+    "service": "Door",
+    "category": 12,
+    "protocols": [
+      "homekit"
+    ],
+    "characteristics": [
+      {
+        "key": "CurrentPosition",
+        "name": "Current Position",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": true,
+        "unit": "percentage",
+        "minimum": 0,
+        "maximum": 100,
+        "step": 1
+      },
+      {
+        "key": "PositionState",
+        "name": "Position State",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 2,
+        "step": 1,
+        "values": [
+          0,
+          1,
+          2
+        ]
+      },
+      {
+        "key": "TargetPosition",
+        "name": "Target Position",
+        "format": "uint8",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": true,
+        "unit": "percentage",
+        "minimum": 0,
+        "maximum": 100,
+        "step": 1
+      },
+      {
+        "key": "ObstructionDetected",
+        "name": "Obstruction Detected",
+        "format": "bool",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false
+      },
+      {
+        "key": "HoldPosition",
+        "name": "Hold Position",
+        "format": "bool",
+        "readable": false,
+        "writable": true,
+        "event": false,
+        "required": false
+      }
+    ]
+  },
+  {
+    "id": "Doorbell",
+    "name": "Doorbell",
+    "service": "Doorbell",
+    "category": 18,
+    "protocols": [
+      "homekit"
+    ],
+    "characteristics": [
+      {
+        "key": "ProgrammableSwitchEvent",
+        "name": "Programmable Switch Event",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 2,
+        "step": 1,
+        "values": [
+          0,
+          1,
+          2
+        ]
+      },
+      {
+        "key": "Brightness",
+        "name": "Brightness",
+        "format": "int",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false,
+        "unit": "percentage",
+        "minimum": 0,
+        "maximum": 100,
+        "step": 1
+      },
+      {
+        "key": "Mute",
+        "name": "Mute",
+        "format": "bool",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false
+      },
+      {
+        "key": "OperatingStateResponse",
+        "name": "Operating State Response",
+        "format": "tlv8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false
+      },
+      {
+        "key": "Volume",
+        "name": "Volume",
+        "format": "uint8",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false,
+        "unit": "percentage",
+        "minimum": 0,
+        "maximum": 100,
+        "step": 1
+      }
+    ]
+  },
+  {
+    "id": "Fanv2",
+    "name": "Fan",
+    "service": "Fanv2",
+    "category": 3,
+    "protocols": [
+      "homekit"
+    ],
+    "characteristics": [
+      {
+        "key": "Active",
+        "name": "Active",
+        "format": "uint8",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "CurrentFanState",
+        "name": "Current Fan State",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 2,
+        "step": 1,
+        "values": [
+          0,
+          1,
+          2
+        ]
+      },
+      {
+        "key": "TargetFanState",
+        "name": "Target Fan State",
+        "format": "uint8",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "LockPhysicalControls",
+        "name": "Lock Physical Controls",
+        "format": "uint8",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ],
+        "configuration": true
+      },
+      {
+        "key": "RotationDirection",
+        "name": "Rotation Direction",
+        "format": "int",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "RotationSpeed",
+        "name": "Rotation Speed",
+        "format": "float",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false,
+        "unit": "percentage",
+        "minimum": 0,
+        "maximum": 100,
+        "step": 1
+      },
+      {
+        "key": "SwingMode",
+        "name": "Swing Mode",
+        "format": "uint8",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      }
+    ]
+  },
+  {
+    "id": "Faucet",
+    "name": "Faucet / shower",
+    "service": "Faucet",
+    "category": 29,
+    "protocols": [
+      "homekit"
+    ],
+    "characteristics": [
+      {
+        "key": "Active",
+        "name": "Active",
+        "format": "uint8",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "StatusFault",
+        "name": "Status Fault",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      }
+    ]
+  },
+  {
+    "id": "FilterMaintenance",
+    "name": "Filter",
+    "service": "FilterMaintenance",
+    "category": 10,
+    "protocols": [
+      "homekit"
+    ],
+    "characteristics": [
+      {
+        "key": "FilterChangeIndication",
+        "name": "Filter Change Indication",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "FilterLifeLevel",
+        "name": "Filter Life Level",
+        "format": "float",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 100,
+        "step": 1
+      },
+      {
+        "key": "ResetFilterIndication",
+        "name": "Reset Filter Indication",
+        "format": "uint8",
+        "readable": false,
+        "writable": true,
+        "event": false,
+        "required": false,
+        "minimum": 1,
+        "maximum": 1,
+        "step": 1
+      }
+    ]
+  },
+  {
+    "id": "GarageDoorOpener",
+    "name": "Garage door opener",
+    "service": "GarageDoorOpener",
+    "category": 4,
+    "protocols": [
+      "homekit"
+    ],
+    "characteristics": [
+      {
+        "key": "CurrentDoorState",
+        "name": "Current Door State",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 4,
+        "step": 1,
+        "values": [
+          0,
+          1,
+          2,
+          3,
+          4
+        ]
+      },
+      {
+        "key": "TargetDoorState",
+        "name": "Target Door State",
+        "format": "uint8",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "ObstructionDetected",
+        "name": "Obstruction Detected",
+        "format": "bool",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": true
+      },
+      {
+        "key": "LockCurrentState",
+        "name": "Lock Current State",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 3,
+        "step": 1,
+        "values": [
+          0,
+          1,
+          2,
+          3
+        ]
+      },
+      {
+        "key": "LockTargetState",
+        "name": "Lock Target State",
+        "format": "uint8",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      }
+    ]
+  },
+  {
+    "id": "HeaterCooler",
+    "name": "Heater / air conditioner",
+    "service": "HeaterCooler",
+    "category": 21,
+    "protocols": [
+      "homekit"
+    ],
+    "characteristics": [
+      {
+        "key": "Active",
+        "name": "Active",
+        "format": "uint8",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "CurrentHeaterCoolerState",
+        "name": "Current Heater-Cooler State",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 3,
+        "step": 1,
+        "values": [
+          0,
+          1,
+          2,
+          3
+        ]
+      },
+      {
+        "key": "TargetHeaterCoolerState",
+        "name": "Target Heater-Cooler State",
+        "format": "uint8",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 2,
+        "step": 1,
+        "values": [
+          0,
+          1,
+          2
+        ]
+      },
+      {
+        "key": "CurrentTemperature",
+        "name": "Current Temperature",
+        "format": "float",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": true,
+        "unit": "celsius",
+        "minimum": -270,
+        "maximum": 100,
+        "step": 0.1
+      },
+      {
+        "key": "LockPhysicalControls",
+        "name": "Lock Physical Controls",
+        "format": "uint8",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ],
+        "configuration": true
+      },
+      {
+        "key": "RotationSpeed",
+        "name": "Rotation Speed",
+        "format": "float",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false,
+        "unit": "percentage",
+        "minimum": 0,
+        "maximum": 100,
+        "step": 1
+      },
+      {
+        "key": "SwingMode",
+        "name": "Swing Mode",
+        "format": "uint8",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "CoolingThresholdTemperature",
+        "name": "Cooling Threshold Temperature",
+        "format": "float",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false,
+        "unit": "celsius",
+        "minimum": 10,
+        "maximum": 35,
+        "step": 0.1
+      },
+      {
+        "key": "HeatingThresholdTemperature",
+        "name": "Heating Threshold Temperature",
+        "format": "float",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false,
+        "unit": "celsius",
+        "minimum": 0,
+        "maximum": 25,
+        "step": 0.1
+      },
+      {
+        "key": "TemperatureDisplayUnits",
+        "name": "Temperature Display Units",
+        "format": "uint8",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ],
+        "configuration": true
+      }
+    ]
+  },
+  {
+    "id": "HumidifierDehumidifier",
+    "name": "Humidifier / dehumidifier",
+    "service": "HumidifierDehumidifier",
+    "category": 22,
+    "protocols": [
+      "homekit"
+    ],
+    "characteristics": [
+      {
+        "key": "Active",
+        "name": "Active",
+        "format": "uint8",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "CurrentHumidifierDehumidifierState",
+        "name": "Current Humidifier-Dehumidifier State",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 3,
+        "step": 1,
+        "values": [
+          0,
+          1,
+          2,
+          3
+        ]
+      },
+      {
+        "key": "TargetHumidifierDehumidifierState",
+        "name": "Target Humidifier-Dehumidifier State",
+        "format": "uint8",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 2,
+        "step": 1,
+        "values": [
+          0,
+          1,
+          2
+        ]
+      },
+      {
+        "key": "CurrentRelativeHumidity",
+        "name": "Current Relative Humidity",
+        "format": "float",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": true,
+        "unit": "percentage",
+        "minimum": 0,
+        "maximum": 100,
+        "step": 1
+      },
+      {
+        "key": "LockPhysicalControls",
+        "name": "Lock Physical Controls",
+        "format": "uint8",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ],
+        "configuration": true
+      },
+      {
+        "key": "RelativeHumidityDehumidifierThreshold",
+        "name": "Relative Humidity Dehumidifier Threshold",
+        "format": "float",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false,
+        "unit": "percentage",
+        "minimum": 0,
+        "maximum": 100,
+        "step": 1
+      },
+      {
+        "key": "RelativeHumidityHumidifierThreshold",
+        "name": "Relative Humidity Humidifier Threshold",
+        "format": "float",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false,
+        "unit": "percentage",
+        "minimum": 0,
+        "maximum": 100,
+        "step": 1
+      },
+      {
+        "key": "RotationSpeed",
+        "name": "Rotation Speed",
+        "format": "float",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false,
+        "unit": "percentage",
+        "minimum": 0,
+        "maximum": 100,
+        "step": 1
+      },
+      {
+        "key": "SwingMode",
+        "name": "Swing Mode",
+        "format": "uint8",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "WaterLevel",
+        "name": "Water Level",
+        "format": "float",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "unit": "percentage",
+        "minimum": 0,
+        "maximum": 100,
+        "step": 1
+      }
+    ]
+  },
+  {
+    "id": "HumiditySensor",
+    "name": "Humidity sensor",
+    "service": "HumiditySensor",
+    "category": 10,
+    "protocols": [
+      "homekit",
+      "matter"
+    ],
+    "characteristics": [
+      {
+        "key": "CurrentRelativeHumidity",
+        "name": "Current Relative Humidity",
+        "format": "float",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": true,
+        "unit": "percentage",
+        "minimum": 0,
+        "maximum": 100,
+        "step": 1
+      },
+      {
+        "key": "StatusActive",
+        "name": "Status Active",
+        "format": "bool",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false
+      },
+      {
+        "key": "StatusFault",
+        "name": "Status Fault",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "StatusLowBattery",
+        "name": "Status Low Battery",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "StatusTampered",
+        "name": "Status Tampered",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      }
+    ]
+  },
+  {
+    "id": "IrrigationSystem",
+    "name": "Irrigation system",
+    "service": "IrrigationSystem",
+    "category": 28,
+    "protocols": [
+      "homekit"
+    ],
+    "characteristics": [
+      {
+        "key": "Active",
+        "name": "Active",
+        "format": "uint8",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "ProgramMode",
+        "name": "Program Mode",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 2,
+        "step": 1,
+        "values": [
+          0,
+          1,
+          2
+        ]
+      },
+      {
+        "key": "InUse",
+        "name": "In Use",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "RemainingDuration",
+        "name": "Remaining Duration",
+        "format": "uint32",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "unit": "seconds",
+        "minimum": 0,
+        "maximum": 3600,
+        "step": 1
+      },
+      {
+        "key": "StatusFault",
+        "name": "Status Fault",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      }
+    ]
+  },
+  {
+    "id": "LeakSensor",
+    "name": "Leak sensor",
+    "service": "LeakSensor",
+    "category": 10,
+    "protocols": [
+      "homekit"
+    ],
+    "characteristics": [
+      {
+        "key": "LeakDetected",
+        "name": "Leak Detected",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "StatusActive",
+        "name": "Status Active",
+        "format": "bool",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false
+      },
+      {
+        "key": "StatusFault",
+        "name": "Status Fault",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "StatusLowBattery",
+        "name": "Status Low Battery",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "StatusTampered",
+        "name": "Status Tampered",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      }
+    ]
+  },
+  {
+    "id": "Lightbulb",
+    "name": "Light",
+    "service": "Lightbulb",
+    "category": 5,
+    "protocols": [
+      "homekit"
+    ],
+    "characteristics": [
+      {
+        "key": "On",
+        "name": "On",
+        "format": "bool",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": true
+      },
+      {
+        "key": "Brightness",
+        "name": "Brightness",
+        "format": "int",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false,
+        "unit": "percentage",
+        "minimum": 0,
+        "maximum": 100,
+        "step": 1
+      },
+      {
+        "key": "CharacteristicValueActiveTransitionCount",
+        "name": "Characteristic Value Active Transition Count",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false
+      },
+      {
+        "key": "CharacteristicValueTransitionControl",
+        "name": "Characteristic Value Transition Control",
+        "format": "tlv8",
+        "readable": true,
+        "writable": true,
+        "event": false,
+        "required": false
+      },
+      {
+        "key": "ColorTemperature",
+        "name": "Color Temperature",
+        "format": "int",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false,
+        "minimum": 140,
+        "maximum": 500,
+        "step": 1
+      },
+      {
+        "key": "Hue",
+        "name": "Hue",
+        "format": "float",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false,
+        "unit": "arcdegrees",
+        "minimum": 0,
+        "maximum": 360,
+        "step": 1
+      },
+      {
+        "key": "Saturation",
+        "name": "Saturation",
+        "format": "float",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false,
+        "unit": "percentage",
+        "minimum": 0,
+        "maximum": 100,
+        "step": 1
+      },
+      {
+        "key": "SupportedCharacteristicValueTransitionConfiguration",
+        "name": "Supported Characteristic Value Transition Configuration",
+        "format": "tlv8",
+        "readable": true,
+        "writable": false,
+        "event": false,
+        "required": false
+      }
+    ]
+  },
+  {
+    "id": "LightSensor",
+    "name": "Light sensor",
+    "service": "LightSensor",
+    "category": 10,
+    "protocols": [
+      "homekit",
+      "matter"
+    ],
+    "characteristics": [
+      {
+        "key": "CurrentAmbientLightLevel",
+        "name": "Current Ambient Light Level",
+        "format": "float",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": true,
+        "unit": "lux",
+        "minimum": 0.0001,
+        "maximum": 100000
+      },
+      {
+        "key": "StatusActive",
+        "name": "Status Active",
+        "format": "bool",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false
+      },
+      {
+        "key": "StatusFault",
+        "name": "Status Fault",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "StatusLowBattery",
+        "name": "Status Low Battery",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "StatusTampered",
+        "name": "Status Tampered",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      }
+    ]
+  },
+  {
+    "id": "LockMechanism",
+    "name": "Lock",
+    "service": "LockMechanism",
+    "category": 6,
+    "protocols": [
+      "homekit"
+    ],
+    "characteristics": [
+      {
+        "key": "LockCurrentState",
+        "name": "Lock Current State",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 3,
+        "step": 1,
+        "values": [
+          0,
+          1,
+          2,
+          3
+        ]
+      },
+      {
+        "key": "LockTargetState",
+        "name": "Lock Target State",
+        "format": "uint8",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      }
+    ]
+  },
+  {
+    "id": "MotionSensor",
+    "name": "Motion sensor",
+    "service": "MotionSensor",
+    "category": 10,
+    "protocols": [
+      "homekit",
+      "matter"
+    ],
+    "characteristics": [
+      {
+        "key": "MotionDetected",
+        "name": "Motion Detected",
+        "format": "bool",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": true
+      },
+      {
+        "key": "StatusActive",
+        "name": "Status Active",
+        "format": "bool",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false
+      },
+      {
+        "key": "StatusFault",
+        "name": "Status Fault",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "StatusLowBattery",
+        "name": "Status Low Battery",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "StatusTampered",
+        "name": "Status Tampered",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      }
+    ]
+  },
+  {
+    "id": "OccupancySensor",
+    "name": "Occupancy sensor",
+    "service": "OccupancySensor",
+    "category": 10,
+    "protocols": [
+      "homekit",
+      "matter"
+    ],
+    "characteristics": [
+      {
+        "key": "OccupancyDetected",
+        "name": "Occupancy Detected",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "StatusActive",
+        "name": "Status Active",
+        "format": "bool",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false
+      },
+      {
+        "key": "StatusFault",
+        "name": "Status Fault",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "StatusLowBattery",
+        "name": "Status Low Battery",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "StatusTampered",
+        "name": "Status Tampered",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      }
+    ]
+  },
+  {
+    "id": "Outlet",
+    "name": "Outlet",
+    "service": "Outlet",
+    "category": 7,
+    "protocols": [
+      "homekit",
+      "matter"
+    ],
+    "characteristics": [
+      {
+        "key": "On",
+        "name": "On",
+        "format": "bool",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": true
+      },
+      {
+        "key": "OutletInUse",
+        "name": "Outlet In Use",
+        "format": "bool",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false
+      }
+    ]
+  },
+  {
+    "id": "SecuritySystem",
+    "name": "Security system",
+    "service": "SecuritySystem",
+    "category": 11,
+    "protocols": [
+      "homekit"
+    ],
+    "characteristics": [
+      {
+        "key": "SecuritySystemCurrentState",
+        "name": "Security System Current State",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 4,
+        "step": 1,
+        "values": [
+          0,
+          1,
+          2,
+          3,
+          4
+        ]
+      },
+      {
+        "key": "SecuritySystemTargetState",
+        "name": "Security System Target State",
+        "format": "uint8",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 3,
+        "step": 1,
+        "values": [
+          0,
+          1,
+          2,
+          3
+        ]
+      },
+      {
+        "key": "SecuritySystemAlarmType",
+        "name": "Security System Alarm Type",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "StatusFault",
+        "name": "Status Fault",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "StatusTampered",
+        "name": "Status Tampered",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      }
+    ]
+  },
+  {
+    "id": "Slats",
+    "name": "Slats",
+    "service": "Slats",
+    "category": 14,
+    "protocols": [
+      "homekit"
+    ],
+    "characteristics": [
+      {
+        "key": "CurrentSlatState",
+        "name": "Current Slat State",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 2,
+        "step": 1,
+        "values": [
+          0,
+          1,
+          2
+        ]
+      },
+      {
+        "key": "SlatType",
+        "name": "Slat Type",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": false,
+        "required": true,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ],
+        "configuration": true
+      },
+      {
+        "key": "SwingMode",
+        "name": "Swing Mode",
+        "format": "uint8",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "CurrentTiltAngle",
+        "name": "Current Tilt Angle",
+        "format": "int",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "unit": "arcdegrees",
+        "minimum": -90,
+        "maximum": 90,
+        "step": 1
+      },
+      {
+        "key": "TargetTiltAngle",
+        "name": "Target Tilt Angle",
+        "format": "int",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false,
+        "unit": "arcdegrees",
+        "minimum": -90,
+        "maximum": 90,
+        "step": 1
+      }
+    ]
+  },
+  {
+    "id": "SmokeSensor",
+    "name": "Smoke alarm",
+    "service": "SmokeSensor",
+    "category": 10,
+    "protocols": [
+      "homekit"
+    ],
+    "characteristics": [
+      {
+        "key": "SmokeDetected",
+        "name": "Smoke Detected",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "StatusActive",
+        "name": "Status Active",
+        "format": "bool",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false
+      },
+      {
+        "key": "StatusFault",
+        "name": "Status Fault",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "StatusLowBattery",
+        "name": "Status Low Battery",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "StatusTampered",
+        "name": "Status Tampered",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      }
+    ]
+  },
+  {
+    "id": "Speaker",
+    "name": "Speaker volume",
+    "service": "Speaker",
+    "category": 26,
+    "protocols": [
+      "homekit"
+    ],
+    "characteristics": [
+      {
+        "key": "Mute",
+        "name": "Mute",
+        "format": "bool",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": true
+      },
+      {
+        "key": "Active",
+        "name": "Active",
+        "format": "uint8",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "Volume",
+        "name": "Volume",
+        "format": "uint8",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false,
+        "unit": "percentage",
+        "minimum": 0,
+        "maximum": 100,
+        "step": 1
+      }
+    ]
+  },
+  {
+    "id": "SmartSpeaker",
+    "name": "Speaker playback",
+    "service": "SmartSpeaker",
+    "category": 26,
+    "protocols": [
+      "homekit"
+    ],
+    "characteristics": [
+      {
+        "key": "CurrentMediaState",
+        "name": "Current Media State",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 5,
+        "step": 1,
+        "values": [
+          0,
+          1,
+          2,
+          4,
+          5
+        ]
+      },
+      {
+        "key": "TargetMediaState",
+        "name": "Target Media State",
+        "format": "uint8",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 2,
+        "step": 1,
+        "values": [
+          0,
+          1,
+          2
+        ]
+      },
+      {
+        "key": "AirPlayEnable",
+        "name": "AirPlay Enable",
+        "format": "uint8",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1
+      },
+      {
+        "key": "Mute",
+        "name": "Mute",
+        "format": "bool",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false
+      },
+      {
+        "key": "Volume",
+        "name": "Volume",
+        "format": "uint8",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false,
+        "unit": "percentage",
+        "minimum": 0,
+        "maximum": 100,
+        "step": 1
+      }
+    ]
+  },
+  {
+    "id": "StatelessProgrammableSwitch",
+    "name": "Programmable button",
+    "service": "StatelessProgrammableSwitch",
+    "category": 15,
+    "protocols": [
+      "homekit"
+    ],
+    "characteristics": [
+      {
+        "key": "ProgrammableSwitchEvent",
+        "name": "Programmable Switch Event",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 2,
+        "step": 1,
+        "values": [
+          0,
+          1,
+          2
+        ]
+      },
+      {
+        "key": "ServiceLabelIndex",
+        "name": "Service Label Index",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": false,
+        "required": false,
+        "minimum": 1,
+        "maximum": 255,
+        "step": 1,
+        "configuration": true
+      }
+    ]
+  },
+  {
+    "id": "Switch",
+    "name": "Switch",
+    "service": "Switch",
+    "category": 8,
+    "protocols": [
+      "homekit",
+      "matter"
+    ],
+    "characteristics": [
+      {
+        "key": "On",
+        "name": "On",
+        "format": "bool",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": true
+      }
+    ]
+  },
+  {
+    "id": "Television",
+    "name": "Television / receiver",
+    "service": "Television",
+    "category": 31,
+    "protocols": [
+      "homekit"
+    ],
+    "external": true,
+    "characteristics": [
+      {
+        "key": "Active",
+        "name": "Active",
+        "format": "uint8",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "ActiveIdentifier",
+        "name": "Active Identifier",
+        "format": "uint32",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": true,
+        "configuration": true
+      },
+      {
+        "key": "RemoteKey",
+        "name": "Remote Key",
+        "format": "uint8",
+        "readable": false,
+        "writable": true,
+        "event": false,
+        "required": true,
+        "minimum": 0,
+        "maximum": 16,
+        "step": 1,
+        "values": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16
+        ]
+      },
+      {
+        "key": "SleepDiscoveryMode",
+        "name": "Sleep Discovery Mode",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ],
+        "configuration": true
+      },
+      {
+        "key": "Brightness",
+        "name": "Brightness",
+        "format": "int",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false,
+        "unit": "percentage",
+        "minimum": 0,
+        "maximum": 100,
+        "step": 1
+      },
+      {
+        "key": "ClosedCaptions",
+        "name": "Closed Captions",
+        "format": "uint8",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "DisplayOrder",
+        "name": "Display Order",
+        "format": "tlv8",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false
+      },
+      {
+        "key": "CurrentMediaState",
+        "name": "Current Media State",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 5,
+        "step": 1,
+        "values": [
+          0,
+          1,
+          2,
+          4,
+          5
+        ]
+      },
+      {
+        "key": "TargetMediaState",
+        "name": "Target Media State",
+        "format": "uint8",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 2,
+        "step": 1,
+        "values": [
+          0,
+          1,
+          2
+        ]
+      },
+      {
+        "key": "PictureMode",
+        "name": "Picture Mode",
+        "format": "uint8",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 13,
+        "step": 1,
+        "values": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13
+        ]
+      },
+      {
+        "key": "PowerModeSelection",
+        "name": "Power Mode Selection",
+        "format": "uint8",
+        "readable": false,
+        "writable": true,
+        "event": false,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      }
+    ]
+  },
+  {
+    "id": "TemperatureSensor",
+    "name": "Temperature sensor",
+    "service": "TemperatureSensor",
+    "category": 10,
+    "protocols": [
+      "homekit",
+      "matter"
+    ],
+    "characteristics": [
+      {
+        "key": "CurrentTemperature",
+        "name": "Current Temperature",
+        "format": "float",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": true,
+        "unit": "celsius",
+        "minimum": -270,
+        "maximum": 100,
+        "step": 0.1
+      },
+      {
+        "key": "StatusActive",
+        "name": "Status Active",
+        "format": "bool",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false
+      },
+      {
+        "key": "StatusFault",
+        "name": "Status Fault",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "StatusLowBattery",
+        "name": "Status Low Battery",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "StatusTampered",
+        "name": "Status Tampered",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      }
+    ]
+  },
+  {
+    "id": "Thermostat",
+    "name": "Thermostat",
+    "service": "Thermostat",
+    "category": 9,
+    "protocols": [
+      "homekit"
+    ],
+    "characteristics": [
+      {
+        "key": "CurrentHeatingCoolingState",
+        "name": "Current Heating Cooling State",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 2,
+        "step": 1,
+        "values": [
+          0,
+          1,
+          2
+        ]
+      },
+      {
+        "key": "TargetHeatingCoolingState",
+        "name": "Target Heating Cooling State",
+        "format": "uint8",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 3,
+        "step": 1,
+        "values": [
+          0,
+          1,
+          2,
+          3
+        ]
+      },
+      {
+        "key": "CurrentTemperature",
+        "name": "Current Temperature",
+        "format": "float",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": true,
+        "unit": "celsius",
+        "minimum": -270,
+        "maximum": 100,
+        "step": 0.1
+      },
+      {
+        "key": "TargetTemperature",
+        "name": "Target Temperature",
+        "format": "float",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": true,
+        "unit": "celsius",
+        "minimum": 10,
+        "maximum": 38,
+        "step": 0.1
+      },
+      {
+        "key": "TemperatureDisplayUnits",
+        "name": "Temperature Display Units",
+        "format": "uint8",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ],
+        "configuration": true
+      },
+      {
+        "key": "CurrentRelativeHumidity",
+        "name": "Current Relative Humidity",
+        "format": "float",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "unit": "percentage",
+        "minimum": 0,
+        "maximum": 100,
+        "step": 1
+      },
+      {
+        "key": "TargetRelativeHumidity",
+        "name": "Target Relative Humidity",
+        "format": "float",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false,
+        "unit": "percentage",
+        "minimum": 0,
+        "maximum": 100,
+        "step": 1
+      },
+      {
+        "key": "CoolingThresholdTemperature",
+        "name": "Cooling Threshold Temperature",
+        "format": "float",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false,
+        "unit": "celsius",
+        "minimum": 10,
+        "maximum": 35,
+        "step": 0.1
+      },
+      {
+        "key": "HeatingThresholdTemperature",
+        "name": "Heating Threshold Temperature",
+        "format": "float",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false,
+        "unit": "celsius",
+        "minimum": 0,
+        "maximum": 25,
+        "step": 0.1
+      }
+    ]
+  },
+  {
+    "id": "Valve",
+    "name": "Valve / sprinkler",
+    "service": "Valve",
+    "category": 29,
+    "protocols": [
+      "homekit"
+    ],
+    "characteristics": [
+      {
+        "key": "Active",
+        "name": "Active",
+        "format": "uint8",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "InUse",
+        "name": "In Use",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "ValveType",
+        "name": "Valve Type",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 3,
+        "step": 1,
+        "values": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "configuration": true
+      },
+      {
+        "key": "IsConfigured",
+        "name": "Is Configured",
+        "format": "uint8",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ],
+        "configuration": true
+      },
+      {
+        "key": "RemainingDuration",
+        "name": "Remaining Duration",
+        "format": "uint32",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "unit": "seconds",
+        "minimum": 0,
+        "maximum": 3600,
+        "step": 1
+      },
+      {
+        "key": "ServiceLabelIndex",
+        "name": "Service Label Index",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": false,
+        "required": false,
+        "minimum": 1,
+        "maximum": 255,
+        "step": 1,
+        "configuration": true
+      },
+      {
+        "key": "SetDuration",
+        "name": "Set Duration",
+        "format": "uint32",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false,
+        "unit": "seconds",
+        "minimum": 0,
+        "maximum": 3600,
+        "step": 1
+      },
+      {
+        "key": "StatusFault",
+        "name": "Status Fault",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "minimum": 0,
+        "maximum": 1,
+        "step": 1,
+        "values": [
+          0,
+          1
+        ]
+      }
+    ]
+  },
+  {
+    "id": "Window",
+    "name": "Window",
+    "service": "Window",
+    "category": 13,
+    "protocols": [
+      "homekit"
+    ],
+    "characteristics": [
+      {
+        "key": "CurrentPosition",
+        "name": "Current Position",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": true,
+        "unit": "percentage",
+        "minimum": 0,
+        "maximum": 100,
+        "step": 1
+      },
+      {
+        "key": "PositionState",
+        "name": "Position State",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 2,
+        "step": 1,
+        "values": [
+          0,
+          1,
+          2
+        ]
+      },
+      {
+        "key": "TargetPosition",
+        "name": "Target Position",
+        "format": "uint8",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": true,
+        "unit": "percentage",
+        "minimum": 0,
+        "maximum": 100,
+        "step": 1
+      },
+      {
+        "key": "ObstructionDetected",
+        "name": "Obstruction Detected",
+        "format": "bool",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false
+      },
+      {
+        "key": "HoldPosition",
+        "name": "Hold Position",
+        "format": "bool",
+        "readable": false,
+        "writable": true,
+        "event": false,
+        "required": false
+      }
+    ]
+  },
+  {
+    "id": "WindowCovering",
+    "name": "Blind / shade",
+    "service": "WindowCovering",
+    "category": 14,
+    "protocols": [
+      "homekit"
+    ],
+    "characteristics": [
+      {
+        "key": "CurrentPosition",
+        "name": "Current Position",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": true,
+        "unit": "percentage",
+        "minimum": 0,
+        "maximum": 100,
+        "step": 1
+      },
+      {
+        "key": "PositionState",
+        "name": "Position State",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 2,
+        "step": 1,
+        "values": [
+          0,
+          1,
+          2
+        ]
+      },
+      {
+        "key": "TargetPosition",
+        "name": "Target Position",
+        "format": "uint8",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": true,
+        "unit": "percentage",
+        "minimum": 0,
+        "maximum": 100,
+        "step": 1
+      },
+      {
+        "key": "CurrentHorizontalTiltAngle",
+        "name": "Current Horizontal Tilt Angle",
+        "format": "int",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "unit": "arcdegrees",
+        "minimum": -90,
+        "maximum": 90,
+        "step": 1
+      },
+      {
+        "key": "TargetHorizontalTiltAngle",
+        "name": "Target Horizontal Tilt Angle",
+        "format": "int",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false,
+        "unit": "arcdegrees",
+        "minimum": -90,
+        "maximum": 90,
+        "step": 1
+      },
+      {
+        "key": "ObstructionDetected",
+        "name": "Obstruction Detected",
+        "format": "bool",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false
+      },
+      {
+        "key": "HoldPosition",
+        "name": "Hold Position",
+        "format": "bool",
+        "readable": false,
+        "writable": true,
+        "event": false,
+        "required": false
+      },
+      {
+        "key": "CurrentVerticalTiltAngle",
+        "name": "Current Vertical Tilt Angle",
+        "format": "int",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false,
+        "unit": "arcdegrees",
+        "minimum": -90,
+        "maximum": 90,
+        "step": 1
+      },
+      {
+        "key": "TargetVerticalTiltAngle",
+        "name": "Target Vertical Tilt Angle",
+        "format": "int",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false,
+        "unit": "arcdegrees",
+        "minimum": -90,
+        "maximum": 90,
+        "step": 1
+      }
+    ]
+  },
+  {
+    "id": "Camera",
+    "name": "Camera",
+    "service": "Camera",
+    "category": 17,
+    "protocols": [
+      "homekit"
+    ],
+    "characteristics": []
+  },
+  {
+    "id": "VideoDoorbell",
+    "name": "Video doorbell",
+    "service": "VideoDoorbell",
+    "category": 18,
+    "protocols": [
+      "homekit"
+    ],
+    "characteristics": [
+      {
+        "key": "ProgrammableSwitchEvent",
+        "name": "Programmable Switch Event",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 2,
+        "step": 1,
+        "values": [
+          0,
+          1,
+          2
+        ]
+      },
+      {
+        "key": "Brightness",
+        "name": "Brightness",
+        "format": "int",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false,
+        "unit": "percentage",
+        "minimum": 0,
+        "maximum": 100,
+        "step": 1
+      },
+      {
+        "key": "Mute",
+        "name": "Mute",
+        "format": "bool",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false
+      },
+      {
+        "key": "OperatingStateResponse",
+        "name": "Operating State Response",
+        "format": "tlv8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": false
+      },
+      {
+        "key": "Volume",
+        "name": "Volume",
+        "format": "uint8",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false,
+        "unit": "percentage",
+        "minimum": 0,
+        "maximum": 100,
+        "step": 1
+      }
+    ]
+  },
+  {
+    "id": "RobotVacuum",
+    "name": "Robot vacuum / mop",
+    "service": "RobotVacuum",
+    "category": 1,
+    "protocols": [
+      "matter"
+    ],
+    "characteristics": [
+      {
+        "key": "RunMode",
+        "name": "Run mode (0 idle, 1 cleaning)",
+        "format": "uint8",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": true,
+        "values": [
+          0,
+          1
+        ]
+      },
+      {
+        "key": "OperationalState",
+        "name": "State (0 stopped, 1 running, 2 paused, 3 error, 64 returning, 65 charging, 66 docked)",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": true,
+        "values": [
+          0,
+          1,
+          2,
+          3,
+          64,
+          65,
+          66
+        ]
+      },
+      {
+        "key": "OperationalError",
+        "name": "Error code (0 no error)",
+        "format": "uint8",
+        "readable": true,
+        "writable": false,
+        "event": true,
+        "required": true,
+        "minimum": 0,
+        "maximum": 255
+      },
+      {
+        "key": "Command",
+        "name": "Command (0 pause, 1 resume, 2 return to dock)",
+        "format": "uint8",
+        "readable": false,
+        "writable": true,
+        "event": false,
+        "required": true,
+        "values": [
+          0,
+          1,
+          2
+        ]
+      },
+      {
+        "key": "CleanMode",
+        "name": "Cleaning mode (0 vacuum, 1 mop, 2 vacuum and mop)",
+        "format": "uint8",
+        "readable": true,
+        "writable": true,
+        "event": true,
+        "required": false,
+        "values": [
+          0,
+          1,
+          2
+        ]
+      }
+    ]
+  }
+]

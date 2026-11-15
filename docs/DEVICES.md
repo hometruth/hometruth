@@ -318,43 +318,45 @@ commands use their saved default when no override is supplied.
     config: { device: living-room-blaster, savedCodeId: "<saved-code-id>" }
 ```
 
-A `workflow-button` is also stateless, but its press starts a server-side
-workflow. A workflow is a validated graph of action, delay, condition, and end
-nodes. Edges are node ids, so a condition can branch and a workflow can loop;
-the Button page shows the reachable graph as a nested state-machine view and
-lets you edit it. A workflow may run actions on any configured device. Actions
-that require the existing control-level confirmation gate can opt into that
-gate with `confirmed: true`. For example:
+A `workflow-button` is stateless: a press starts its saved workflow. The Button
+page provides an X6 graph editor with labelled connections, a step inspector,
+automatic layout, nested branches, undo/redo, and an accessible step outline.
+See [Workflows](WORKFLOWS.md) for the format, AI authoring, and execution rules.
 
 ```yaml
-  - id: candles-cycle
-    name: Candles cycle
+  - id: example-routine
+    name: Example routine
     model: workflow-button
     config:
       workflow:
-        start: on
-        nodes:
-          - { id: on, type: action, device: candles, control: turnOn, next: wait }
-          - { id: wait, type: delay, durationMs: 300000, next: off }
-          - { id: off, type: action, device: candles, control: turnOff, next: done }
-          - { id: done, type: end }
+        schemaVersion: 1
+        name: Example routine
+        description: Turn a relay on, wait, then turn it off.
+        runPolicy: ignoreWhileRunning
+        limits: { maxSteps: 100, maxDurationMs: 360000 }
+        graph:
+          entry: on
+          nodes:
+            - { id: on, type: action, action: { target: example-relay, operation: binarySwitch.turnOn, input: {} }, next: wait, onError: failed }
+            - { id: wait, type: delay, durationMs: 300000, next: off }
+            - { id: off, type: action, action: { target: example-relay, operation: binarySwitch.turnOff, input: {} }, next: done, onError: failed }
+            - { id: done, type: end, outcome: success }
+            - { id: failed, type: end, outcome: failure }
 ```
 
-Workflow runs are tracked separately from Button state. The default concurrency
-policy replaces an active run when the Button is pressed again; `parallel` and
-`ignore` are available in the workflow definition when a different policy is
-needed. The **Buttons** page creates Workflow Buttons, and the Button page
-exposes the workflow graph and editor.
-
-The workflow API is `POST /api/buttons` to create one, `GET /api/buttons/<id>/workflow`
-to read its graph and recent run status, and `PUT /api/buttons/<id>/workflow` to
-replace the graph. The update path validates node ids, branch edges, target
-devices, and target controls before it writes the inventory.
+Creating, importing, validating, simulating, or saving a workflow does not run
+it. A saved definition takes effect on the next Button press. Browser drafts
+and canvas positions are kept separately from the definition in `devices.yml`.
 
 An `optimistic-switch` combines two Button devices. It remembers the last
 successful button press, including a press made directly on either Button.
+The installation persists that command across restarts and identifies it as
+commanded state with its original timestamp, not a physical observation.
+Remembered commands apply only to the same switch id and On/Off button pair.
 Before the first press its state is unknown unless `initialState` is configured.
-Failed presses never update memory.
+An initial state is explicitly labeled as an assumption. Failed presses never
+update memory. Refresh reads the remembered command without changing its time
+or sending another command.
 
 ```yaml
   - id: candles
@@ -363,11 +365,12 @@ Failed presses never update memory.
     config: { onButton: candles-on, offButton: candles-off, initialState: off }
 ```
 
-Choose a **Room** on any device's page or on a card in **Switches**. Select an
+Choose a **Room** on an element's page, separately from its **Tags**. Select an
 existing room, choose **Add room…** and enter a name, or choose **No room**, then
-save. Assignments are stored as `room` alongside `id`, `name`, and `model` in
-`devices.yml`; the top-level `rooms` list keeps saved rooms available even
-when empty. Room edits take effect after the live configuration reload.
+save. Each element has at most one room. Assignments are stored as single-valued
+`room` tags internally; room names stay out of the ordinary tag chips and tag
+suggestions. Saved rooms remain available even when empty, and edits take effect
+immediately.
 
 Every switch's **Settings** page explains its definition: the exact requests
 for On, Off, Toggle, and Refresh, the underlying hardware or member commands,
@@ -379,7 +382,7 @@ settings. The Switches list links directly to these settings.
 The Matter bridge automatically publishes switch rooms as Fixed Label metadata
 and refreshes it within 30 seconds. Apple Home room assignment is separate:
 this bridge cannot create or move rooms in Apple's home database. Set the room
-in Apple Home as well. See [room integration limits](MATTER_SWITCHES.md#rooms).
+in Apple Home as well. See [room integration limits](APPLE_HOME.md#automatic-settings).
 
 Because the result advertises the ordinary `binarySwitch` capability, the
 Matter bridge discovers it automatically alongside physical relays and other

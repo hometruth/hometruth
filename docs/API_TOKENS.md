@@ -47,12 +47,11 @@ Two consequences worth stating plainly:
 Everything below is how access works from outside that network, and how to
 narrow a particular client even inside it.
 
-Every request to HomeTruth carries an API token. There is one credential type
-and it is carried two ways: `Authorization: Bearer ht_…` from the CLI, the
-Matter bridge and scripts, or an `HttpOnly` cookie in a browser. Signing in is
-exchanging the string for the cookie, so a browser session is the same row in
-the same table as a script's token — revocable from the same page, visible in
-the same list.
+API clients present `Authorization: Bearer ht_…`. Browsers sign in with an API
+token or a registered passkey and receive an independent browser session. An
+access grant is the token record: its permissions and scope apply equally to
+its API credential, passkeys and browser sessions. Revoking or expiring that
+grant disables all three.
 
 A route is reachable only when the token both **holds the verb** the route asks
 for and **reaches the thing** the route touches. The two are independent.
@@ -73,12 +72,12 @@ dead cookie cannot lock you out of your own living room.)
 | `write` | Read access plus normal controls: switches, PTZ, treats, IR/RF sends and talkback. |
 | `admin` | Write access plus configuration and meta-actions, including enable, disable and reboot. |
 
-The hierarchy is `read < write < admin`. A higher level never widens the subject:
-an admin token for one device cannot administer another device or the site.
-`GET /api/devices/:id/enabled` needs read access; `POST /api/devices/:id/enable`
-and `POST /api/devices/:id/disable` need admin access to that device. Ordinary
-switch on/off actions need write access. Site administration, including token
-issuance and revocation, still requires admin access over the whole site.
+The hierarchy is `read < write < admin`. Read and write grants may cover one
+device, a group, criteria, or the whole site. **Admin always covers the whole
+site** and requires `{ "all": true }`; scoped administrative grants are rejected,
+including invalid records already present in storage. Configuration, group
+membership, network reservations, enable/disable, and token management all
+require site administration. Ordinary switch on/off actions need write access.
 
 ## Reach
 
@@ -102,7 +101,11 @@ and cannot be commanded, because a control on a group fans out to every member.
 A token scoped to part of the house cannot enumerate the rest of it. Listings
 are narrowed, pages resolve through the same check, and the state stream
 carries only the nodes the token reaches rather than refusing outright, so a
-page stays live for the part it may see.
+page stays live for the part it may see. Protected streams revalidate authority
+before forwarding each chunk and at least once per second while idle. Revoking
+or expiring a token/session, or changing its device scope, closes an existing
+stream and cancels its upstream subscription. Data already delivered to a client
+cannot be recalled.
 
 ## From the command line
 
@@ -119,7 +122,7 @@ ht tokens issue "Kitchen tablet" --can write --for room:Kitchen
 ```
 
 ```bash
-ht tokens issue "Gate administrator" --can admin --for device:gate-relay
+ht tokens issue "Site administrator" --can admin --for all
 ht tokens revoke <id>
 ```
 
@@ -162,20 +165,54 @@ That command does **not** go through the server. It opens
 The file is mode 0600; anyone who can read it can already read every secret
 this site holds.
 
-Sign in with the first token, issue a narrow one for each client, then revoke
-it.
+Sign in with the first token, issue a dedicated grant for each person or
+integration, then sign in with the appropriate grant. Register passkeys on that
+grant before revoking the bootstrap token. A passkey does not survive revocation
+of the grant it belongs to.
 
-## For a browser that cannot paste
+## Persistent browser sign-in
 
-A token may be given once in the URL:
+Browser sign-in requires trusted HTTPS. Loopback `http://localhost` is allowed
+for development; plain HTTP on a LAN is not. Configure the proxy and its CA as
+explained in [deployment](DEPLOYMENT.md#https-and-local-names). Keep the backend
+on loopback, set `HOMETRUTH_TRUST_LAN=off` behind a proxy, and set
+`HOMETRUTH_PUBLIC_ORIGIN` to the HTTPS origin. Each client must trust the CA.
 
-```
-http://hometruth.local:3000/kindle?token=ht_…
-```
+Sign in once at `/sign-in`, then open **Sign-in & security** at
+`/settings/security` to add a passkey and manage signed-in browsers. Keep the
+API token in a password manager for recovery. Passkeys require a browser with
+WebAuthn JSON support and an authenticator with user verification (for example,
+a device unlock or security-key PIN). Enrollment and authentication require
+user verification and verify the exact origin, relying-party ID and a one-use,
+five-minute challenge bound to the requesting browser. Passkeys are tied to the
+hostname where they were registered; choose the installation's permanent name
+before enrolling them.
 
-It is accepted, moved into the cookie, and stripped by a redirect, so it stops
-living in history and bookmarks. Pages already send
-`Referrer-Policy: no-referrer`. This is how the Kindle dashboard signs in.
+Each browser receives a random secret in `__Host-ht_session`, with `Secure`,
+`HttpOnly`, `SameSite=Lax`, `Path=/`, no Domain and a 90-day Max-Age. Only its
+SHA-256 hash is stored in the installation's `.hometruth/tokens.sqlite`.
+Sessions, public passkey credentials and pending challenges survive server
+restarts and release changes. Preserve this private database with installation
+backups; never include it in source releases.
+
+The server enforces both 30 days without requests and 90 days since sign-in.
+Background requests count as activity. Successful sign-in replaces this
+browser's previous session; a valid session visiting `/sign-in` proceeds to its
+destination. Signing out revokes this browser's session on the server. The
+security page lists only browsers and passkeys belonging to the caller's grant.
+Removing a passkey also revokes the sessions authenticated with it.
+
+Adding or removing passkeys, revoking browsers, and issuing or revoking API
+tokens require a sign-in within the last five minutes. The UI sends an older
+session to sign in again, then returns it to the page to retry the action. API
+clients presenting a valid bearer token already prove their credential on every
+request. LAN trust alone cannot change credentials.
+
+Token sign-in and passkey operations are throttled to 30 requests per minute
+per observed peer (shared behind a loopback proxy). Throttle memory and pending
+challenge storage are bounded. No proxy-supplied client header grants trust.
+Credentials in query strings do not authenticate: never put an API token in a
+bookmark, QR code or URL.
 
 ## How it is built
 
@@ -199,13 +236,6 @@ living in history and bookmarks. Pages already send
 
 ## What is not covered yet
 
-- **No passkeys.** WebAuthn needs a secure context, and HomeTruth is reached
-  over plain HTTP on the LAN. The credential layer is the place to add one: a
-  passkey (or an Argon2id password, which `Bun.password` already provides with
-  no dependency) would verify in front of the guard and mint a session that
-  sets the same cookie. Nothing downstream would change.
-- **Rate limiting.** Nothing throttles repeated bad tokens. Guessing a 256-bit
-  secret is not the threat; a noisy log is.
 - **No per-network narrowing.** Local-network trust is all or nothing: you
   cannot say "the LAN may control lights but not see cameras". If you want
   that, switch it off and give each client a scoped token.

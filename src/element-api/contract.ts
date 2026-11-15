@@ -2,8 +2,8 @@ import { UNNAMED } from "../tags/model";
 import { postControlNames } from "../control-routes";
 import { controlRequest } from "./controls";
 import { cliCommands } from "./cli";
-import { commandUsage, shellWord, type ElementCommand } from "../ht/commands";
-/** One schema-derived contract feeds the four API views and their downloadable files. */
+import { shellWord, type ElementCommand } from "../ht/commands";
+/** One schema-derived contract feeds the element API views and downloadable OpenAPI document. */
 import type { Site } from "../site";
 import type { StateHub } from "../state/hub";
 import type { GraphNode } from "../graph/types";
@@ -11,6 +11,8 @@ import { elementKey } from "../tags/identity";
 import { COLLECTION_CAPABILITIES, rewriteSchema, buildOpenApiDocument, describedSite, type Json, type OpenApiDocument, type RegisteredRoute } from "../openapi/document";
 import { CAPABILITY_KIND_SCHEMA_IDS } from "../schema-catalog";
 import { properties, record, resolveSchema, sample, type Property, type Schema } from "./schema";
+import { addressesFor } from "./addresses";
+import { elementScope } from "../auth/element-scope";
 
 export interface ApiOperation {
   key: string; method: string; path: string; description: string;
@@ -18,7 +20,7 @@ export interface ApiOperation {
   example: Json; cli?: ElementCommand;
 }
 export interface ElementApi {
-  id: string; key: string; uuid?: string; name: string; kind: string; page: string;
+  id: string; key: string; address: string; uuid?: string; name: string; kind: string; page: string;
   document: OpenApiDocument; properties: Property[]; operations: ApiOperation[]; commands: ElementCommand[];
 }
 const apiRef = (id: string, document: OpenApiDocument): Schema => {
@@ -33,7 +35,10 @@ const responseSchema = (operation: Schema): Schema => {
 
 export function elementForPage(site: Site, hub: StateHub, path: string): GraphNode | undefined {
   const graph = hub.data.topology();
-  if (path.startsWith("/elements/")) return graph.node(path.split("/")[2]!);
+  if (path.startsWith("/elements/")) {
+    try { return addressesFor(hub).node(decodeURIComponent(path.split("/")[2]!)); }
+    catch { return undefined; }
+  }
   const match = site.pages().resolve(path);
   if (match) return graph.node(elementKey(match.entry.source, match.entry.id));
   return graph.byPage(path);
@@ -64,13 +69,16 @@ export function buildElementApi(options: { site: Site; hub: StateHub; node: Grap
 
 function compileElementApi(options: { site: Site; hub: StateHub; node: GraphNode; page: string; origin: string; routes: readonly RegisteredRoute[]; version: string; uuid?: string }): ElementApi {
   const { site, hub, node, page } = options;
-  const device = ["device", "capability", "control", "property", "sensor", "scene", "show", "preset", "signal", "region"].includes(node.kind) && node.side === "instance" ? site.get(node.ids[0]!) : undefined;
-  const group = node.kind === "group" || node.kind === "group-switch" ? site.deviceGroups.find(group => group.id === node.ids[0]) : undefined;
+  const addresses = addressesFor(hub);
+  const address = addresses.address(node.id)!;
+  const owner = elementScope(hub.data.topology(), node);
+  const device = owner?.kind === "device" ? site.get(owner.id) : undefined;
+  const group = owner?.kind === "group" ? site.deviceGroups.find(group => group.id === owner.id) : undefined;
   const tag = node.kind === "tag" ? hub.data.sources.tags.byPair(node.ids[1]!, node.ids[0] === UNNAMED ? "" : node.ids[0]!) : undefined;
   const service = node.kind === "service" ? site.services.find(service => service.id === node.ids[0]) : undefined;
   const base = buildOpenApiDocument({ routes: options.routes, site: describedSite(site, { reaches: id => id === device?.id || Boolean(group?.members.includes(id)), siteWide: false }), origin: options.origin, version: options.version });
   const components = { ...record(base.components.schemas) };
-  const document: OpenApiDocument = { ...base, info: { ...base.info, title: `${node.name} API`, "x-hometruth-object-id": node.ids[0] ?? node.id }, components: { ...base.components, schemas: components }, paths: {} };
+  const document: OpenApiDocument = { ...base, info: { ...base.info, title: `${node.name} API`, "x-hometruth-object-id": address }, components: { ...base.components, schemas: components }, paths: {} };
   let primary = `/api/elements/${node.id}`;
   const structuralGroupControls = group?.members.map(id => site.get(id)).filter(member => member !== undefined).map(member => member.controls().map(reference => {
     const { kind, controlId } = member.resolveControl(reference);
@@ -109,7 +117,7 @@ function compileElementApi(options: { site: Site; hub: StateHub; node: GraphNode
       const operation = record(value);
       const params = Array.isArray(operation.parameters) ? operation.parameters.map(record) : [];
       const bindings: Record<string, string> = {};
-      let include = node.side !== "tag" && (path === `/api/elements/{key}` || path.startsWith("/api/elements/{key}/") || path === "/api/graph/{key}");
+      let include = node.side !== "tag" && (path === `/api/elements/{key}` || path.startsWith("/api/elements/{key}/"));
       if (include) bindings.key = node.id;
       if (device && operation["x-hometruth-target"] === "device") {
         if (path.startsWith("/api/aqara/") && !(path.endsWith("/pair")
@@ -187,11 +195,60 @@ function compileElementApi(options: { site: Site; hub: StateHub; node: GraphNode
   }
   const id = node.kind === "device" ? device!.id : group ? group.id : service ? service.id : tag ? tag.id : node.id;
   const ordered = [...(read ? [read] : []), ...operations.filter(operation => operation !== read)];
-  cliCommands(ordered, document, id, primary, [device?.id, group?.id, service?.id, tag?.id, node.id].filter((value): value is string => Boolean(value)));
-  return { id, key: node.id, ...(options.uuid ? { uuid: options.uuid } : {}), name: node.name, kind: node.kind, page, document, properties: fields, operations: ordered, commands: [...new Map(ordered.map(operation => [operation.cli!.name, operation.cli!])).values()] };
+  for (const operation of ordered) {
+    const internalPath = operation.path;
+    operation.path = addresses.publicPath(internalPath);
+    if (operation.path !== internalPath && Object.hasOwn(document.paths, internalPath)) {
+      document.paths[operation.path] = document.paths[internalPath]!;
+      delete document.paths[internalPath];
+    }
+    if (operation.key.includes(internalPath)) operation.key = operation.key.replace(internalPath, operation.path);
+    record(record(document.paths[operation.path])[operation.method.toLowerCase()]).operationId = `${operation.method.toLowerCase()}-${operation.path}`;
+    for (const parameter of operation.parameters) {
+      if (parameter.in === "query" && parameter.name === "node") {
+        const schema = record(parameter.schema);
+        if (Array.isArray(schema.enum)) schema.enum = schema.enum.map(value => addresses.stateAddress(String(value)) ?? value);
+      }
+    }
+  }
+  const bindings = [address, device && addresses.device(device.id), group && addresses.group(group.id), service && addresses.service(service.id)]
+    .filter((value): value is string => Boolean(value));
+  cliCommands(ordered, document, address, addresses.publicPath(primary), bindings);
+  return { id, key: node.id, address, ...(options.uuid ? { uuid: options.uuid } : {}), name: node.name, kind: node.kind, page, document, properties: fields, operations: ordered, commands: [...new Map(ordered.map(operation => [operation.cli!.name, operation.cli!])).values()] };
 }
 
-export function skillMarkdown(api: ElementApi): string {
-  const name = `ht-${api.kind}-${api.id}`.toLowerCase().replace(/[^a-z0-9-]+/g, "-").slice(0, 64).replace(/-+$/, "");
-  return `---\nname: ${name}\ndescription: ${JSON.stringify(`Use the ht CLI to read and control ${api.name} in HomeTruth.`)}\n---\n\n# ${api.name}\n\nUse the \`ht\` CLI. Object ID: \`${api.id}\`. Kind: \`${api.kind}\`.\nSet \`HOMETRUTH_URL=${String(api.document.servers[0]?.url)}\`; use \`HOMETRUTH_TOKEN\` when authentication is required.\nRun \`ht ${shellWord(api.id)} status\` to read the object and \`ht ${shellWord(api.id)} help\` to list commands and flags before changing it. Values and optional properties follow its schema; unavailable readings may be absent.\n\n## Properties\n\n${api.properties.map(field => `- \`${field.path}\` — ${field.required ? "required" : "optional"}; \`${field.type}\`${field.description ? `. ${field.description}` : ""}`).join("\n") || "No schema-declared properties."}\n\n## Methods and commands\n\n${api.commands.map(command => `- **${command.name}** — \`${commandUsage(command)}\`\n  \`${command.example}\``).join("\n")}\nExamples are starting values: supply the intended value and any required IDs. For controls requiring confirmation, add \`--confirm\` to the control command only after the user confirms.\n`;
+/** A single installation-wide skill; the current element belongs in the user's request. */
+export function skillMarkdown(origin: string): string {
+  const base = new URL(origin).origin;
+  return `---
+name: hometruth
+description: Discover, inspect and control devices, groups, services and other elements in a HomeTruth installation using its MCP server, REST API or ht CLI.
+---
+
+# HomeTruth
+
+Installation: ${base}
+MCP endpoint: ${base}/mcp
+Skill source: ${base}/SKILL.md
+
+This skill covers the entire installation. The user's current element of interest is task context, not a restriction on the skill. Follow the user's requested scope and the connection's permissions.
+
+## Connect and discover
+
+Use the HomeTruth MCP server at the endpoint above with Streamable HTTP. The agent's runtime must be able to reach this installation; a cloud agent may not be able to reach a local network address. Use the installation's existing access setup. When authentication is required, configure an existing HomeTruth API token through the agent's protected connection settings. Trusted LAN installations may allow access without a token. Keep credentials out of prompts, copied commands and this skill. Existing read, write and admin permissions still apply.
+
+List the MCP tools and read their input schemas. Discover the current inventory, then inspect the selected element's contract before reading or changing it. Match the user's friendly name against the inventory's name, address and context. Use the returned friendly address; names and addresses can change after renaming, and internal IDs or UUIDs are not API selectors. Resolve ambiguous matches before an action.
+
+## Read and control
+
+Use the available read operation to inspect current state and availability. Discover methods and their input schemas from the live contract; do not infer controls from a device name or reuse another model's arguments. Supply only the requested values within the current limits. An unavailable reading may be absent rather than zero or false.
+
+Perform changes only within the user's request. Honor explicit confirmation requirements exposed by a control's schema. After a change, read the state or returned result to verify the outcome. Report an unavailable device or rejected permission; do not broaden credentials or repeatedly retry a hardware action.
+
+## REST and CLI
+
+If MCP is unavailable, the same installation exposes REST endpoints with bearer-token authentication when required. Read \`${base}/api/inventory\`, then \`${base}/api/inventory/{address}\` for an element's properties, methods, transports and schemas. The complete route reference is \`${base}/api/openapi.json\`. Use the paths, methods and request schemas returned by those documents; URL-encode friendly addresses in path segments. Permission checks are the same as for MCP.
+
+If the \`ht\` CLI is already installed, set \`HOMETRUTH_URL=${shellWord(base)}\` and provide \`HOMETRUTH_TOKEN\` through secure environment configuration when required. Use \`ht find <text>\` to find elements, \`ht <address> help\` for current commands and flags, and \`ht <address> status\` to read an element. For controls requiring confirmation, pass \`--confirm\` only after the user confirms. CLI availability is a prerequisite for this option; MCP and REST require no local HomeTruth checkout or installation files.
+`;
 }

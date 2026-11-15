@@ -37,7 +37,7 @@ export function kindleRoutes(site: Site, hub: StateHub) {
       const config = parseKindleConfig(JSON.parse(text));
       if (!config.canvas) return errorJson(context, 400, "invalid_request", "A canvas is required");
       const ctx = pageContext(context);
-      const snapshot = buildKindleSnapshot(site, config, state, ctx.i18n);
+      const snapshot = buildKindleSnapshot(site, config, state, ctx.i18n, ctx.apiPath);
       const frame = await rasterizeCanvas(config.canvas, snapshot, ctx);
       return context.json({ html: renderRasterCanvas(config.canvas, frame), css: rasterLayoutCss(config.canvas, frame), frame, generatedAt: snapshot.generatedAt });
     } catch (error) {
@@ -49,7 +49,7 @@ export function kindleRoutes(site: Site, hub: StateHub) {
     const settings = hub.data.kindleSettings();
     const config = canvasDraft(settings.config, site.list());
     const ctx = pageContext(context);
-    const snapshot = buildKindleSnapshot(site, config, state, ctx.i18n);
+    const snapshot = buildKindleSnapshot(site, config, state, ctx.i18n, ctx.apiPath);
     return context.html(renderKindleDesigner({ ctx, settings: { ...settings, config }, elements: kindleElements(site), snapshot, savedCanvas: Boolean(settings.config.canvas) }));
   });
   app.put("/api/kindle/config", async (context) => {
@@ -68,14 +68,15 @@ export function kindleRoutes(site: Site, hub: StateHub) {
   });
   app.get("/api/kindle/snapshot", async (context) => {
     const { config } = hub.data.kindleSettings();
-    return context.json(buildKindleSnapshot(site, config, state, pageContext(context).i18n));
+    const ctx = pageContext(context);
+    return context.json(buildKindleSnapshot(site, config, state, ctx.i18n, ctx.apiPath));
   });
   app.get("/kindle/settings", async (context) => context.html(renderKindleSettingsPage({ ctx: pageContext(context), settings: hub.data.kindleSettings(), elements: kindleElements(site) })));
   app.get("/kindle", async (context) => {
     const { config } = hub.data.kindleSettings();
     const ctx = pageContext(context);
     const options = {
-      ctx, config, snapshot: buildKindleSnapshot(site, config, state, ctx.i18n),
+      ctx, config, snapshot: buildKindleSnapshot(site, config, state, ctx.i18n, ctx.apiPath),
       room: context.req.query("room") ?? "", page: context.req.query("page") ?? "1",
       preview: context.req.query("preview") === "1",
     };

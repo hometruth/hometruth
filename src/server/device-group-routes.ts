@@ -4,6 +4,8 @@ import { Hono, type Context } from "hono";
 import type { DeviceConfigWriter } from "../config/device-writer";
 import { criteriaProblem, groupSchemaChoices } from "../models/automatic-group";
 import type { TagStore } from "../tags/store";
+import { elementKey } from "../tags/identity";
+import { ROOM } from "../tags/model";
 import { CapabilityError } from "../models/capability";
 import { isGroupSwitch, SelectedDeviceGroup, type GroupSnapshot, type SwitchRequirement } from "../models/device-group";
 import { automaticGroupCriteriaSchema, deviceGroupConfigSchema, deviceGroupSettingsSchema, type AutomaticGroupCriteria, type DeviceGroupConfig, type DeviceGroupSettings, type DeviceGroup } from "../schemas";
@@ -41,7 +43,7 @@ const validSelection = ajv.compile<{ members?: string[]; criteria?: AutomaticGro
   oneOf: [{ properties: { members: {} }, required: ["members"] }, { properties: { criteria: {} }, required: ["criteria"] }],
 });
 
-export function deviceGroupRoutes(site: Site, tags: TagStore, hub: StateHub, writer?: DeviceConfigWriter, onControl?: (id: string, control: string) => void, onRead?: (group: DeviceGroup, snapshot: GroupSnapshot) => void) {
+export function deviceGroupRoutes(site: Site, tags: TagStore, hub: StateHub, writer?: DeviceConfigWriter, onControl?: (id: string, control: string, error?: string) => void, onRead?: (group: DeviceGroup, snapshot: GroupSnapshot) => void) {
   const app = new Hono<AppEnvironment>();
   /**
    * A group is shown only when every member is in reach. `policy.ts` marks
@@ -82,8 +84,8 @@ export function deviceGroupRoutes(site: Site, tags: TagStore, hub: StateHub, wri
     const match = site.pages().resolve(new URL(context.req.url).pathname);
     if (match?.entry.source !== "group") return next();
     const group = site.listGroups().find(group => group.id === match.entry.id);
-    return group ? context.html(renderSelectedGroupPage({ ctx: pageContext(context), group, snapshot: hub.data.group(group.id)!, ...builderOptions(), canEdit: !group.builtIn && Boolean(writer?.setGroupSettings),
-      devices: site.list(),
+    return group ? context.html(renderSelectedGroupPage({ ctx: pageContext(context), group, snapshot: hub.data.group(group.id)!, ...(context.get("principal") && !context.get("principal")!.allowsSite("admin") ? { rooms: [], schemas: [], tags: [] } : builderOptions()), canEdit: !group.builtIn && Boolean(writer?.setGroupSettings),
+      devices: reachableDevices(context, site.list()),
       switchDefinition: group.asSwitch ? renderGroupSwitchDefinition(pageContext(context), site, group) : "",
     })) : context.notFound();
   });
@@ -113,6 +115,7 @@ export function deviceGroupRoutes(site: Site, tags: TagStore, hub: StateHub, wri
       if (!isGroupSwitch(snapshot)) return errorJson(context, 400, "invalid_request", "Every group member must share power state, On, Off, and Toggle to use this group as a switch", switchGapDetail(snapshot));
     }
     await writer.addGroup({ ...input, name: input.name.trim() });
+    if (input.room) tags.attach(elementKey("group", input.id), { name: ROOM, value: input.room });
     hub.data.configurationChanged();
     const page = site.pages().page("group", input.id);
     if (!page) throw new Error(`Saved group "${input.id}" was not loaded into the site`);
@@ -141,6 +144,11 @@ export function deviceGroupRoutes(site: Site, tags: TagStore, hub: StateHub, wri
       if ((input.members || input.criteria) && group.asSwitch && !canSwitch) settings.asSwitch = false;
     }
     await writer.setGroupSettings(group.id, settings);
+    if (settings.room !== undefined) {
+      const key = elementKey("group", group.id);
+      if (settings.room) tags.attach(key, { name: ROOM, value: settings.room });
+      else tags.detachName(key, ROOM);
+    }
     hub.data.configurationChanged();
     return context.json({ id: group.id, ...settings });
   });
@@ -151,7 +159,7 @@ export function deviceGroupRoutes(site: Site, tags: TagStore, hub: StateHub, wri
     if (!validators.deviceControlRequest(input)) return errorJson(context, 400, "invalid_request", "Invalid group control request");
     const control = context.req.param("control");
     const result = await resolve(group.members, Boolean(group.criteria)).invoke(control, input.value, input.confirmed === undefined ? {} : { confirmed: input.confirmed });
-    for (const member of result.results) if (member.ok) onControl?.(member.id, control);
+    for (const member of result.results) onControl?.(member.id, control, member.ok ? undefined : member.error);
     return context.json({ ...result, group: { ...linked(result.group), canSwitch: isGroupSwitch(result.group) } });
   });
   // Group switches use their own endpoint so group and device ids cannot collide.
@@ -163,7 +171,8 @@ export function deviceGroupRoutes(site: Site, tags: TagStore, hub: StateHub, wri
     if (!isGroupSwitch(snapshot)) return errorJson(context, 409, "not_supported", "This group no longer shares all switch controls", switchGapDetail(snapshot));
     if (action) {
       const result = await selected.invoke(`power.${action}`);
-      for (const member of result.results) if (member.ok) onControl?.(member.id, `power.${action}`);
+      for (const member of result.results) onControl?.(member.id, `power.${action}`, member.ok ? undefined : member.error);
+      onRead?.(group, result.group);
       if (!result.ok) return errorJson(context, 502, "member_failed", result.results.filter(member => !member.ok).map(member => `${member.name}: ${member.error}`).join("; "));
       snapshot = result.group;
     }

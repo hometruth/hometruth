@@ -1,8 +1,7 @@
 import type { RegisteredDevice } from "../site";
-import type { WorkflowDefinition } from "../workflows/runner";
+
 import { escapeHtml, renderPage, type PageContext } from "./shell";
 
-export const DEFAULT_WORKFLOW: WorkflowDefinition = { start: "start", nodes: [{ id: "start", type: "end", label: "Complete" }] };
 
 const SCRIPT = String.raw`
   (() => {
@@ -24,7 +23,7 @@ const SCRIPT = String.raw`
       ht.say(feedback, ht.t("feedback.saving"));
       try {
         const data = new FormData(form);
-        const body = { id: String(data.get("id") || ""), name: String(data.get("name") || ""), workflow: ${JSON.stringify(DEFAULT_WORKFLOW)} };
+        const body = { id: String(data.get("id") || ""), name: String(data.get("name") || "") };
         const result = await ht.request("/api/buttons", { method: "POST", body: JSON.stringify(body) });
         window.location.assign(result.page);
       } catch (error) {

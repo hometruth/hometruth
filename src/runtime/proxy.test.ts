@@ -1,17 +1,17 @@
 import { expect, test } from "bun:test";
 import { forwardToWorker } from "./proxy";
 
-const upstream = new URL("http://127.0.0.1:1234/hubs/aqara-hub-m2/graph");
+const upstream = new URL("http://127.0.0.1:1234/graph?view=dependencies&focus=example-hub");
 
 test("a healthy page can finish after the former 1.5-second cutoff", async () => {
-  const request = new Request("http://localhost:3000/hubs/aqara-hub-m2/graph");
+  const request = new Request("http://localhost:3000/graph?view=dependencies&focus=example-hub");
   const response = await forwardToWorker(request, upstream, new Headers(), async (_url, init) => {
     await Bun.sleep(1_750);
     init.signal?.throwIfAborted();
-    return new Response("Aqara Hub M2 graph");
+    return new Response("Example hub graph");
   });
   expect(response.status).toBe(200);
-  expect(await response.text()).toBe("Aqara Hub M2 graph");
+  expect(await response.text()).toBe("Example hub graph");
 });
 
 test("disconnecting the client still cancels pending upstream work", async () => {

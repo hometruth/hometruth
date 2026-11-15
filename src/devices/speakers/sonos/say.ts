@@ -2,9 +2,8 @@
  * Clips registered for a speaker's `say()` control: a short-lived, in-memory
  * store keyed by id so a speaker can fetch its own clip back over HTTP
  * (`say.ts` generates the bytes and a path; `src/vendors/sonos/routes.ts`
- * serves them). Speech is synthesized with macOS's built-in `say` command
- * (no API key, no cloud dependency) — this only works on a Mac; a HomeTruth
- * server running elsewhere needs a different `synthesizeSayClip`.
+ * serves them). Speech is synthesized locally, with no API key or cloud
+ * dependency: macOS's built-in `say` command, or Piper on Linux.
  */
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -114,7 +113,7 @@ function padWavWithSilence(bytes: Uint8Array, minimumSeconds: number): Uint8Arra
 
 const CLIP_TTL_MS = 5 * 60_000;
 const clips = new Map<string, SayClip>();
-/** Same text said again reuses its clip instead of re-synthesizing (macOS `say` takes real wall-clock time per call). */
+/** Same text said again reuses its clip instead of re-synthesizing (speech synthesis takes real wall-clock time per call). */
 const clipIdByTextHash = new Map<string, string>();
 
 function evictExpired(now: number): void {
@@ -132,22 +131,30 @@ async function hashText(text: string): Promise<string> {
   return Buffer.from(digest).toString("hex");
 }
 
-/** Synthesize `text` as a mono 16-bit WAV via macOS's `say` command. */
-export const synthesizeSayClipWithMacSay: SaySynthesizer = async (text) => {
-  if (process.platform !== "darwin") {
-    throw new SayError("say() needs macOS's `say` command; this server is not running on macOS", "unsupported");
-  }
+/**
+ * Synthesize `text` as a mono 16-bit 22.05 kHz WAV: macOS's `say` command, or on
+ * Linux Piper (`HOMETRUTH_PIPER` binary, `HOMETRUTH_PIPER_VOICE` .onnx model).
+ */
+export const synthesizeSayClip: SaySynthesizer = async (text) => {
   const directory = await mkdtemp(join(tmpdir(), "hometruth-say-"));
   const path = join(directory, "clip.wav");
   try {
-    const proc = Bun.spawn(["say", "-o", path, "--data-format=LEI16@22050", "--channels=1", "--file-format=WAVE", text], {
-      stdout: "ignore",
-      stderr: "pipe",
-    });
+    let command: string[];
+    let engine: string;
+    if (process.platform === "darwin") {
+      command = ["say", "-o", path, "--data-format=LEI16@22050", "--channels=1", "--file-format=WAVE", text];
+      engine = "macOS say";
+    } else {
+      const piper = process.env.HOMETRUTH_PIPER, voice = process.env.HOMETRUTH_PIPER_VOICE;
+      if (!piper || !voice) throw new SayError("say() needs macOS's `say`, or HOMETRUTH_PIPER and HOMETRUTH_PIPER_VOICE set to a Piper binary and voice", "unsupported");
+      command = [piper, "--model", voice, "--output_file", path];
+      engine = "Piper";
+    }
+    const proc = Bun.spawn(command, { stdin: engine === "Piper" ? new TextEncoder().encode(text) : "ignore", stdout: "ignore", stderr: "pipe" });
     const exitCode = await proc.exited;
     if (exitCode !== 0) {
       const stderr = await new Response(proc.stderr).text();
-      throw new SayError(`macOS say exited with code ${exitCode}: ${stderr.trim()}`, "synthesis_failed");
+      throw new SayError(`${engine} exited with code ${exitCode}: ${stderr.trim().slice(-300)}`, "synthesis_failed");
     }
     return new Uint8Array(await readFile(path));
   } finally {
@@ -156,7 +163,7 @@ export const synthesizeSayClipWithMacSay: SaySynthesizer = async (text) => {
 };
 
 /** Generate and register a clip for `text`, returning the path it is served at and its duration. Repeating the same text reuses its clip rather than re-synthesizing. */
-export async function registerSayClip(text: string, synthesize: SaySynthesizer = synthesizeSayClipWithMacSay): Promise<RegisteredSayClip> {
+export async function registerSayClip(text: string, synthesize: SaySynthesizer = synthesizeSayClip): Promise<RegisteredSayClip> {
   const now = Date.now();
   evictExpired(now);
   const textHash = await hashText(text);

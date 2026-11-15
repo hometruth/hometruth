@@ -2,12 +2,10 @@ import { pageCatalog } from "./page-catalog";
 import Ajv2020 from "ajv/dist/2020";
 import addFormats from "ajv-formats";
 import { Hono } from "hono";
-import { ROOM, tagAssignmentSchema, tagCreateSchema, tagUpdateSchema, tagPage, type TagFields } from "../tags/model";
-import { parseElementKey } from "../tags/identity";
+import { ROOM, tagAssignmentSchema, tagCreateSchema, tagUpdateSchema, tagPage, tagSlug, type TagFields } from "../tags/model";
 import type { TagStore } from "../tags/store";
 import { type Element } from "../tags/elements";
 import type { StateHub } from "../state/hub";
-import { parseViewState, renderGraphPage } from "../ui/graph-page";
 import type { Site } from "../site";
 import { renderElementTagsPage, renderTagNamePage, renderTagsPage } from "../ui/tags-page";
 import { exportTagsYaml, importTags } from "../tags/export";
@@ -20,23 +18,6 @@ const assignmentValid = ajv.compile<{ tagId?: string; slug?: string }>(tagAssign
 
 export function tagRoutes(site: Site, store: TagStore, hub: StateHub) {
   const app = new Hono<AppEnvironment>();
-  /**
-   * A room used to be an element with a base64 key. It is a tag now, so that
-   * key is an alias: every bookmark and every stored link still resolves, and
-   * lands on the friendly URL.
-   */
-  const tagPageFor = (key: string): string | undefined => {
-    const parsed = parseElementKey(key);
-    if (parsed?.kind === "room" && parsed.ids[0]) {
-      const tag = store.byPair(parsed.ids[0], ROOM);
-      if (tag) return tagPage(tag);
-    }
-    if (parsed?.kind === "tag" && parsed.ids[1] !== undefined) {
-      const tag = store.byPair(parsed.ids[1], parsed.ids[0] ?? "");
-      if (tag) return tagPage(tag);
-    }
-    return undefined;
-  };
   const all = () => pageCatalog(hub).elements;
   const find = (key: string) => pageCatalog(hub).byKey.get(key);
   /**
@@ -53,35 +34,29 @@ export function tagRoutes(site: Site, store: TagStore, hub: StateHub) {
     return elements.map(element => ({ ...element, tagIds: assignments.get(element.key) ?? [] }));
   };
   const pageData = () => pageCatalog(hub);
+  app.get("/rooms", c => c.html(renderTagsPage(pageContext(c), "rooms", undefined, pageData())));
+  app.get("/rooms/:slug", c => {
+    const slug = c.req.param("slug");
+    const tag = store.bySlug(slug, ROOM);
+    return tag && tagSlug(tag.value) === slug ? c.html(renderTagsPage(pageContext(c), "elements", tag, pageData())) : errorJson(c, 404, "not_found", "Room not found");
+  });
   app.get("/tags", c => c.html(renderTagsPage(pageContext(c), c.req.query("view") === "elements" ? "elements" : "tags", undefined, pageData())));
   app.get("/tags/:slug", c => {
     const slug = c.req.param("slug");
-    // A bare name with no value is the name's own index: every room, for `room`.
+    // Ordinary named tags have an index; rooms have their own collection.
     const named = store.nameOf(slug);
     const tag = store.bySlug(slug);
-    if (!tag && named) return c.html(renderTagNamePage(pageContext(c), named, store.listNamed(named.name).map(entry => ({ ...entry, page: tagPage(entry) }))));
+    if (!tag && named && named.name !== ROOM) return c.html(renderTagNamePage(pageContext(c), named, store.listNamed(named.name).map(entry => ({ ...entry, page: tagPage(entry) }))));
     return tag ? c.html(renderTagsPage(pageContext(c), "elements", tag, pageData())) : errorJson(c, 404, "not_found", "Tag not found");
   });
   app.get("/tags/:name/:slug", c => {
+    if (c.req.param("name") === ROOM) return errorJson(c, 404, "not_found", "Tag not found");
     const tag = store.bySlug(c.req.param("slug"), c.req.param("name"));
     return tag ? c.html(renderTagsPage(pageContext(c), "elements", tag, pageData())) : errorJson(c, 404, "not_found", "Tag not found");
   });
-  // Every element has a graph, not only the ones with a device page.
-  app.get("/elements/:key/graph", async c => {
-    const key = c.req.param("key");
-    const graph = hub.data.topology();
-    const url = new URL(c.req.url);
-    const page = renderGraphPage({
-      ctx: pageContext(c), graph, focus: key, nav: "tags",
-      state: parseViewState(url.searchParams), base: url.pathname,
-    });
-    return page ? c.html(page) : errorJson(c, 404, "not_found", "Element not found");
-  });
   app.get("/elements/:key", async c => {
-    const redirect = tagPageFor(c.req.param("key"));
-    if (redirect) return c.redirect(redirect, 301);
     const element = find(c.req.param("key"));
-    return element ? c.html(renderElementTagsPage(pageContext(c), element)) : errorJson(c, 404, "not_found", "Element not found");
+    return element ? c.html(renderElementTagsPage(pageContext(c), element, hub.data.topology().node(element.key)?.side === "instance" ? "dependencies" : "model")) : errorJson(c, 404, "not_found", "Element not found");
   });
   app.get("/api/tags", c => {
     const counts: Record<string, number> = {};

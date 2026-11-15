@@ -20,7 +20,8 @@ export function renderEventsPage({ ctx, subjects, types, events = [] }: EventsPa
     mainAttributes: `data-event-log data-events-path="/api/events" data-stream-path="/api/events/stream" ${eventViewData(subjects, types)}`,
     body: `<h1>${escapeHtml(t("nav.events"))} ${renderLiveIndicator(ctx)}</h1>
       ${renderEventFilters(ctx, subjects, types)}
-      ${renderEventList(ctx, events, subjects, types)}`,
+      ${renderEventList(ctx, events, subjects, types)}
+      <button type="button" id="events-older" hidden>${escapeHtml(t("events.older"))}</button>`,
     script: EVENT_LOG_SCRIPT,
     messages: EVENT_LOG_MESSAGES,
   });

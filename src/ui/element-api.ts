@@ -21,7 +21,7 @@ export const ELEMENT_API_CSS = `${API_CSS}
   .element-api .api-command { border-bottom:1px solid var(--hair); padding-block:var(--s3); }
   .element-api iframe { display:none; }
 `;
-const copyBlock = (value: string) => `<div data-copy-block><button type="button" class="btn" data-copy>Copy</button><pre><code>${escapeHtml(value)}</code></pre></div>`;
+const copyBlock = (value: string, prompt?: "mcp" | "skill") => `<div data-copy-block${prompt ? ` data-install-prompt="${prompt}"` : ""}><button type="button" class="btn" data-copy>${prompt ? "Copy installation request" : "Copy"}</button><pre><code>${escapeHtml(value)}</code></pre></div>`;
 
 const panels = new WeakMap<ElementApi, Map<string, string>>();
 const PANEL_NONCE = "__HOMETRUTH_PANEL_NONCE__";
@@ -45,14 +45,20 @@ export function renderElementApi(ctx: PageContext, api: ElementApi): string {
 function compileElementApiPanel(ctx: PageContext, api: ElementApi): string {
   const fieldRows = api.properties.map(field => `<tr><td><code>${escapeHtml(field.path)}</code></td><td class="property-type"><code>${escapeHtml(field.type)}</code></td><td>${field.required ? "Required" : "Optional"}${field.description ? `<br>${escapeHtml(field.description)}` : ""}</td></tr>`).join("");
   const properties = `<details open><summary>Public properties (${api.properties.length})</summary><div class="api-table"><table><thead><tr><th>Property</th><th>Type</th><th>Schema</th></tr></thead><tbody>${fieldRows}</tbody></table></div></details>`;
-  const skill = skillMarkdown(api);
+  const origin = new URL(String(api.document.servers[0]?.url)).origin;
+  const skill = skillMarkdown(origin);
+  const focus = `${JSON.stringify(api.name)} (friendly address: ${api.address})`;
+  const mcpPrompt = `Install and configure the HomeTruth MCP server at ${origin}/mcp using Streamable HTTP and my existing HomeTruth access; when authentication is required, use an existing HomeTruth API token in your secure connection settings. This connection covers the entire installation; my current element of interest is ${focus}.`;
+  const skillPrompt = `Install the hometruth skill from ${origin}/SKILL.md using my existing HomeTruth access when authentication is required. The skill covers the entire installation; my current element of interest is ${focus}.`;
+  const interest = `<p>Current element of interest: <strong>${escapeHtml(api.name)}</strong> · <code>${escapeHtml(api.address)}</code></p>`;
   const examples = clientExamples(api);
   const code = examples[0]!.code;
   const inventoryCode = `import ht from "./ht";\nawait ht.connect(${JSON.stringify(api.document.servers[0]?.url)});\n\nconsole.log(ht.inventory);\nconsole.log(Object.keys(ht.devices));`;
+  const installCli = `mkdir -p "$HOME/.local/bin" &&\nht_download="$(mktemp "$HOME/.local/bin/ht.XXXXXX")" &&\ncurl --fail --show-error --location ${shellWord(`${origin}/ht-cli.js`)} --output "$ht_download" &&\nchmod +x "$ht_download" &&\nmv "$ht_download" "$HOME/.local/bin/ht"\nexport PATH="$HOME/.local/bin:$PATH"\nht --help`;
   return `<section class="element-api" data-element-api hidden data-nonce="${escapeHtml(ctx.nonce)}" data-page="${escapeHtml(api.page)}">
-    <h2>API · ${escapeHtml(api.name)}</h2><p><code>${escapeHtml(api.id)}</code> · ${api.properties.length} properties · ${api.operations.length} methods</p>
+    <h2>API · ${escapeHtml(api.name)}</h2><p><code>${escapeHtml(api.address)}</code> · ${api.properties.length} properties · ${api.operations.length} methods</p>
     <div role="region" id="api-panel-0" aria-labelledby="api-tab-0" hidden>
-      <p>One HomeTruth library for the whole install. Connect once, then use <code>ht.devices[id]</code> or <code>ht.elements[idOrUuid]</code>. <a href="/ht.ts" download="ht.ts">Download shared TypeScript library</a> · <a href="/api/inventory">Browse element inventory</a></p>
+      <p>One HomeTruth library for the whole install. Connect once, then use <code>ht.devices[address]</code> or <code>ht.elements[address]</code>. <a href="/ht.ts" download="ht.ts">Download shared TypeScript library</a> · <a href="/api/inventory">Browse element inventory</a></p>
       <details><summary>Use the client in your code</summary>${copyBlock(code)}</details>
       <details><summary>Explore every element</summary>${copyBlock(inventoryCode)}</details>
       <h3>Playground</h3><p>Runs against this HomeTruth instance using your current session. <code>describe()</code> lists an element’s properties and methods. For a token in your own code, use <code>ht.connect(url, { token: "…" })</code>.</p>
@@ -64,8 +70,29 @@ function compileElementApiPanel(ctx: PageContext, api: ElementApi): string {
       <details open><summary>All methods (${examples.length})</summary>${examples.map(example => `<div class="api-command"><h3>${escapeHtml(example.name)}</h3><p>${escapeHtml(example.description)}</p><p><code>${escapeHtml(example.signature)}</code></p>${copyBlock(example.code)}</div>`).join("")}</details>
     </div>
     <div role="region" id="api-panel-1" aria-labelledby="api-tab-1" hidden>${properties}${renderApiPlayground(ctx, api.document, `${api.page}/openapi.json`)}</div>
-    <div role="region" id="api-panel-2" aria-labelledby="api-tab-2" hidden><p>Set the install URL once. Set <code>HOMETRUTH_TOKEN</code> when authentication is required. Replace example values and parameter IDs before running a command.</p>${copyBlock(`export HOMETRUTH_URL=${JSON.stringify(api.document.servers[0]?.url)}`)}${copyBlock(`ht ${shellWord(api.id)}\nht ${shellWord(api.id)} help`)}${properties}${api.commands.map(command => `<div class="api-command"><h3>${escapeHtml(command.name)}</h3><p>${escapeHtml(command.summary)}</p><p><code>${escapeHtml(commandUsage(command))}</code></p>${copyBlock(command.example)}</div>`).join("")}</div>
-    <div role="region" id="api-panel-3" aria-labelledby="api-tab-3" hidden><p><a href="${escapeHtml(api.page)}/SKILL.md">Open SKILL.md</a></p>${copyBlock(skill)}</div>
+    <div role="region" id="api-panel-2" aria-labelledby="api-tab-2" hidden>
+      <h3>Install ht (if needed)</h3>
+      <p>Try <code>ht --help</code> in your terminal. If it works, skip to Connect. If the command is not found, install <a href="https://bun.sh/docs/installation" target="_blank" rel="noopener noreferrer">Bun 1.3.12 or newer</a>, then run these commands on macOS or Linux:</p>
+      ${copyBlock(installCli)}
+      <p>This downloads the CLI from this HomeTruth server, ready for the commands below. Keep Bun installed. Add <code>export PATH="$HOME/.local/bin:$PATH"</code> to your shell profile (such as <code>~/.zshrc</code> or <code>~/.bashrc</code>) to use <code>ht</code> in new terminals.</p>
+      <details><summary>Windows and other options</summary><p><a href="/ht-cli.js" download="ht-cli.js">Download the CLI</a> and run <code>bun ht-cli.js --help</code>. Use <code>bun ht-cli.js</code> in place of <code>ht</code> below. In PowerShell, set the server with <code>$env:HOMETRUTH_URL = ${escapeHtml(JSON.stringify(origin))}</code>.</p></details>
+      <h3>Connect</h3><p>Set the server URL in your terminal. Set <code>HOMETRUTH_TOKEN</code> through your secure environment settings when authentication is required. Your computer must be able to reach this server and trust its HTTPS certificate.</p>
+      ${copyBlock(`export HOMETRUTH_URL=${shellWord(origin)}`)}
+      <h3>Try it</h3><p>Read this element and list its commands. Replace example values and parameters before running other commands.</p>
+      ${copyBlock(`ht ${shellWord(api.address)}\nht ${shellWord(api.address)} help`)}${properties}${api.commands.map(command => `<div class="api-command"><h3>${escapeHtml(command.name)}</h3><p>${escapeHtml(command.summary)}</p><p><code>${escapeHtml(commandUsage(command))}</code></p>${copyBlock(command.example)}</div>`).join("")}
+    </div>
+    <div role="region" id="api-panel-3" aria-labelledby="api-tab-3" hidden>
+      <h3>Connect your agent to HomeTruth</h3><p>One MCP server for the entire installation, using your existing HomeTruth access and permissions.</p>${interest}
+      <p>Copy this request and paste it into your agent:</p>${copyBlock(mcpPrompt, "mcp")}
+      <p>MCP endpoint: <a href="/mcp"><code>${escapeHtml(origin)}/mcp</code></a> · Streamable HTTP</p>
+      <p>Your agent must be able to reach this HomeTruth installation. A cloud agent may not reach a local network address. If authentication is required, configure an existing HomeTruth API token through the agent’s secure connection settings.</p>
+    </div>
+    <div role="region" id="api-panel-4" aria-labelledby="api-tab-4" hidden>
+      <h3>Install the HomeTruth skill</h3><p>One skill for the entire installation. The current element stays in your request, so you can use the same skill for other elements.</p>${interest}
+      <p>Copy this request and paste it into your agent:</p>${copyBlock(skillPrompt, "skill")}
+      <p>Your agent needs network access to this installation. If authentication is required, use your existing HomeTruth token through the agent’s secure settings.</p>
+      <p><a href="/SKILL.md">Open HomeTruth SKILL.md</a></p><details><summary>Preview the HomeTruth skill</summary>${copyBlock(skill)}</details>
+    </div>
     <script type="application/json" nonce="${escapeHtml(ctx.nonce)}" data-api-examples>${JSON.stringify(examples.map(({ name, code }) => ({ name, code }))).replaceAll("<", "\\u003c")}</script>
   </section>`;
 }

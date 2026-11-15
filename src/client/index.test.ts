@@ -16,10 +16,11 @@ import type { DeviceConfigWriter } from "../config/device-writer";
 
 class Relay extends BinarySwitch {
   calls: string[] = [];
-  async turnOn() { this.calls.push("on"); }
-  async turnOff() { this.calls.push("off"); }
-  async toggle() { this.calls.push("toggle"); }
-  async getState() { return "off" as const; }
+  value: "on" | "off" = "off";
+  async turnOn() { this.calls.push("on"); this.value = "on"; }
+  async turnOff() { this.calls.push("off"); this.value = "off"; }
+  async toggle() { this.calls.push("toggle"); this.value = this.value === "off" ? "on" : "off"; }
+  async getState() { return this.value; }
 }
 class Switch extends Device<{ host: string }> {
   readonly model = SHELLY_PLUS_1;
@@ -27,8 +28,8 @@ class Switch extends Device<{ host: string }> {
   readonly capabilities = { binarySwitch: this.relay };
   async probe() { return {}; }
 }
-function fixture(options: { tokens?: TokenStore; store?: GraphStore; fanId?: string; writer?: DeviceConfigWriter } = {}) {
-  const fan = new Switch(options.fanId ?? "lutron-fan", "Fan", { host: "10.77.0.2" });
+function fixture(options: { tokens?: TokenStore; store?: GraphStore; fanId?: string; fanName?: string; writer?: DeviceConfigWriter } = {}) {
+  const fan = new Switch(options.fanId ?? "lutron-fan", options.fanName ?? "Fan", { host: "10.77.0.2" });
   fan.room = "Kitchen";
   const other = new Switch("other", "Other", { host: "10.77.0.3" });
   other.room = "Bedroom";
@@ -52,20 +53,20 @@ describe("shared HomeTruth client", () => {
     } });
     try {
       await ht.connect("http://localhost");
-      const device = ht.devices["lutron-fan"]!;
+      const device = ht.devices["fan"]!;
       const description = await device.describe();
       for (const name of ["enabled", "enable", "disable"]) {
         expect(description.methods.find(method => method.name === name)).toMatchObject({ arguments: [], returns: "DeviceEnabled" });
       }
       expect(description.methods.some(method => method.name === "setEnabled")).toBe(false);
       expect(await device.enabled()).toBe(true);
-      expect(calls.at(-1)).toMatchObject({ method: "GET", url: "http://localhost/api/devices/lutron-fan/enabled" });
+      expect(calls.at(-1)).toMatchObject({ method: "GET", url: "http://localhost/api/devices/fan/enabled" });
       expect(await device.disable()).toBe(false);
-      expect(calls.at(-1)).toMatchObject({ method: "POST", url: "http://localhost/api/devices/lutron-fan/disable" });
+      expect(calls.at(-1)).toMatchObject({ method: "POST", url: "http://localhost/api/devices/fan/disable" });
       expect(calls.at(-1)).not.toHaveProperty("body");
       expect(await device.enabled()).toBe(false);
       expect(await device.enable()).toBe(true);
-      expect(calls.at(-1)).toMatchObject({ method: "POST", url: "http://localhost/api/devices/lutron-fan/enable" });
+      expect(calls.at(-1)).toMatchObject({ method: "POST", url: "http://localhost/api/devices/fan/enable" });
       expect(calls.at(-1)).not.toHaveProperty("body");
       expect(await device.enabled()).toBe(true);
       expect(changes).toEqual([false, true]);
@@ -74,32 +75,32 @@ describe("shared HomeTruth client", () => {
   });
   test("root always identifies the site, even with a device called root and scoped access", async () => {
     const tokens = new TokenStore();
-    const { ht, app, hub, fan } = fixture({ tokens, fanId: "root" });
+    const { ht, app, hub, fan } = fixture({ tokens, fanId: "internal-root", fanName: "Root" });
     try {
       const all = tokens.issue({ name: "All", permissions: ["read"], subject: { all: true } }).token;
       await ht.connect("http://localhost", { token: all });
       const entry = ht.inventory.find(element => element.kind === "site")!;
       expect(entry).toMatchObject({ id: "root", key: "root", page: "/" });
-      expect(ht.elements.root).toBe(ht.elements[entry.uuid]);
-      expect(ht.elements.root).not.toBe(ht.devices.root);
+      expect(ht.elements.root).toBe(ht.elements[entry.address]);
+      expect(ht.elements.root).not.toBe(ht.devices["root-device"]);
       expect(await ht.elements.root!.describe()).toMatchObject({ id: "root", key: "root", kind: "site" });
       expect(await ht.elements.root!.read()).toMatchObject({ element: { key: "root", kind: "site" } });
-      expect(await ht.devices.root!.describe()).toMatchObject({ id: "root", kind: "device" });
+      expect(await ht.devices["root-device"]!.describe()).toMatchObject({ id: "internal-root", kind: "device" });
 
       const kitchen = tokens.issue({ name: "Kitchen", permissions: ["read"], subject: { criteria: { room: "Kitchen" } } }).token;
       await ht.connect("http://localhost", { token: kitchen });
       expect(ht.inventory.some(element => element.kind === "site")).toBe(false);
       expect(() => ht.elements.root).toThrow('No element named "root"');
-      expect(await ht.devices.root!.describe()).toMatchObject({ id: "root", kind: "device" });
+      expect(await ht.devices["root-device"]!.describe()).toMatchObject({ id: "internal-root", kind: "device" });
       const headers = { authorization: `Bearer ${kitchen}` };
-      expect((await app.request(`/api/inventory/${entry.uuid}`, { headers })).status).toBe(404);
+      expect((await app.request(`/api/inventory/${entry.address}`, { headers })).status).toBe(404);
       expect((await app.request("/api/elements/root", { headers })).status).toBe(403);
-      expect((await app.request("/api/graph/root", { headers })).status).toBe(403);
+      expect((await app.request("/api/graph/scene?focus=root", { headers })).status).toBe(403);
       expect(fan.relay.calls).toEqual([]);
     } finally { hub.stop(); tokens.close(); }
   });
 
-  test("one inventory contains every graph element and device IDs and UUIDs share handles", async () => {
+  test("every element has one current friendly address shared by device and element handles", async () => {
     const { ht, calls, hub, fan } = fixture();
     try {
       expect(() => ht.devices).toThrow("Await ht.connect");
@@ -109,11 +110,15 @@ describe("shared HomeTruth client", () => {
       expect(new Set(ht.inventory.map(element => element.uuid)).size).toBe(ht.inventory.length);
       const entry = ht.inventory.find(element => element.deviceId === "lutron-fan")!;
       expect(entry.uuid).toMatch(/^[a-f0-9-]{36}$/);
-      expect(ht.elements[entry.uuid]).toBe(ht.devices["lutron-fan"]);
-      expect(ht.elements["lutron-fan"]).toBe(ht.devices["lutron-fan"]);
-      expect(ht.elements[entry.key]).toBe(ht.devices["lutron-fan"]);
+      expect(ht.elements[entry.address]).toBe(ht.devices["fan"]);
+      expect(() => ht.devices["lutron-fan"]).toThrow("No device named");
+      expect(() => ht.elements["lutron-fan"]).toThrow("No element named");
+      expect(() => ht.elements[entry.key]).toThrow("No element named");
+      expect(() => ht.elements[entry.uuid]).toThrow("No element named");
+      expect(entry.address).toBe("fan");
+      expect(new Set(ht.inventory.map(element => element.address)).size).toBe(ht.inventory.length);
       expect(Object.keys(ht.elements)).toHaveLength(ht.inventory.length);
-      const [first, second] = await Promise.all([ht.devices["lutron-fan"]!.describe(), ht.elements[entry.uuid]!.describe()]);
+      const [first, second] = await Promise.all([ht.devices["fan"]!.describe(), ht.elements[entry.address]!.describe()]);
       expect(first.uuid).toBe(second.uuid);
       expect(first.methods.map(method => method.name)).toContain("on");
       expect(first.properties.some(property => property.path === "state.value")).toBe(true);
@@ -121,30 +126,49 @@ describe("shared HomeTruth client", () => {
       expect(first.methods.every(method => !("transport" in method))).toBe(true);
       expect(calls).toHaveLength(2);
       expect(fan.relay.calls).toEqual([]);
-      const snapshot = await ht.devices["lutron-fan"]!.read();
+      const snapshot = await ht.devices["fan"]!.read();
       expect(snapshot).toMatchObject({ state: { availability: "online", value: "off" } });
       expect(snapshot).not.toHaveProperty("object");
-      expect(calls.at(-1)?.url).toEndWith("/api/switches/lutron-fan");
-      const state = await ht.devices["lutron-fan"]!.state();
+      expect(calls.at(-1)?.url).toEndWith("/api/switches/fan");
+      const state = await ht.devices["fan"]!.state();
       expect(state).toMatchObject({ availability: "online", value: "off" });
       expect(state).not.toHaveProperty("object");
-      expect(calls.at(-1)).toMatchObject({ url: "http://localhost/api/switches/lutron-fan/state", method: "GET" });
+      expect(calls.at(-1)).toMatchObject({ url: "http://localhost/api/switches/fan/state", method: "GET" });
       expect(calls.at(-1)).not.toHaveProperty("body");
-      await ht.devices["lutron-fan"]!.on();
-      await ht.devices["lutron-fan"]!.off();
-      await ht.elements[entry.uuid]!.toggle!();
+      await ht.devices["fan"]!.on();
+      await ht.devices["fan"]!.off();
+      await ht.elements[entry.address]!.toggle!();
       expect(fan.relay.calls).toEqual(["on", "off", "toggle"]);
-      expect(calls.at(-1)?.url).toEndWith("/api/devices/lutron-fan/controls/toggle");
+      expect(calls.at(-1)?.url).toEndWith("/api/devices/fan/controls/toggle");
     } finally { hub.stop(); }
   });
 
-  test("unknown IDs and methods fail explicitly; reconnect invalidates old handles", async () => {
+  test("nested elements use their own friendly address and scoped contract", async () => {
+    const { ht, app, hub, fan, calls } = fixture();
+    try {
+      await ht.connect("http://localhost");
+      const entry = ht.inventory.find(element => element.kind === "control" && element.id.endsWith("/turnOn") && element.context.startsWith("Fan"))!;
+      expect(entry.address).toContain("fan");
+      expect(entry.commandPage).toBe(`/elements/${entry.address}`);
+      const nested = ht.elements[entry.address]!;
+      const description = await nested.describe();
+      expect(description.methods.some(method => method.name === "on")).toBe(true);
+      expect(description.methods.some(method => method.name === "off")).toBe(false);
+      await nested.on!();
+      expect(calls.at(-1)?.url).toBe("http://localhost/api/devices/fan/controls/turnOn");
+      expect(fan.relay.calls).toEqual(["on"]);
+      expect((await app.request(`/api/inventory/${entry.uuid}`)).status).toBe(404);
+      expect((await app.request(`/api/inventory/${entry.key}`)).status).toBe(404);
+    } finally { hub.stop(); }
+  });
+
+  test("unknown addresses and methods fail explicitly; reconnect invalidates old handles", async () => {
     const { ht, hub, calls } = fixture();
     try {
       await ht.connect("http://localhost");
       expect(() => ht.devices["missing"]).toThrow("No device named");
       expect(() => ht.elements["missing"]).toThrow("No element named");
-      const fan = ht.devices["lutron-fan"]!;
+      const fan = ht.devices["fan"]!;
       await expect(fan.fly!()).rejects.toThrow("has no method fly");
       expect(calls.every(call => call.method === "GET")).toBe(true);
       await ht.connect("http://localhost");
@@ -153,21 +177,21 @@ describe("shared HomeTruth client", () => {
     } finally { hub.stop(); }
   });
 
-  test("tokens scope both the inventory and UUID descriptions", async () => {
+  test("tokens scope both the inventory and friendly-address descriptions", async () => {
     const tokens = new TokenStore();
     const { app, ht, hub, calls } = fixture({ tokens });
     try {
       const all = await (await app.request("/api/inventory", { headers: { authorization: `Bearer ${tokens.issue({ name: "All", permissions: ["read"], subject: { all: true } }).token}` } })).json() as { elements: InventoryElement[] };
       const kitchen = tokens.issue({ name: "Kitchen", permissions: ["read"], subject: { criteria: { room: "Kitchen" } } }).token;
       await ht.connect("http://localhost", { token: kitchen });
-      expect(Object.keys(ht.devices)).toEqual(["lutron-fan"]);
+      expect(Object.keys(ht.devices)).toEqual(["fan"]);
       expect(ht.inventory.some(element => element.id === "other")).toBe(false);
-      await ht.devices["lutron-fan"]!.describe();
-      expect(await ht.devices["lutron-fan"]!.state()).toMatchObject({ value: "off" });
+      await ht.devices["fan"]!.describe();
+      expect(await ht.devices["fan"]!.state()).toMatchObject({ value: "off" });
       expect(calls.every(call => call.authorization === `Bearer ${kitchen}`)).toBe(true);
       const inaccessible = all.elements.find(element => element.deviceId === "other")!;
-      expect((await app.request(`/api/inventory/${inaccessible.uuid}`, { headers: { authorization: `Bearer ${kitchen}` } })).status).toBe(404);
-      await expect(ht.devices["lutron-fan"]!.on()).rejects.toThrow("write");
+      expect((await app.request(`/api/inventory/${inaccessible.address}`, { headers: { authorization: `Bearer ${kitchen}` } })).status).toBe(404);
+      await expect(ht.devices["fan"]!.on()).rejects.toThrow("write");
     } finally { hub.stop(); tokens.close(); }
   });
 
@@ -180,12 +204,13 @@ describe("shared HomeTruth client", () => {
       await second.ht.connect("http://localhost");
       const id = first.ht.inventory.find(entry => entry.deviceId === "lutron-fan")!.uuid;
       expect(id).toBe(store.uuidFor(elementKey("device", "lutron-fan"))!);
-      expect((await second.ht.elements[id]!.describe()).id).toBe("lutron-fan");
+      expect((await second.ht.elements.fan!.describe()).uuid).toBe(id);
+      expect(() => second.ht.elements[id]).toThrow("No element named");
     } finally { first.hub.stop(); second.hub.stop(); store.close(); }
   });
 
   test("method arguments become scalar values, options and query parameters", async () => {
-    const entry: InventoryElement = { uuid: "uuid", id: "lamp", key: "key", name: "Lamp", kind: "device", side: "instance", page: "/lights/lamp", deviceId: "lamp" };
+    const entry: InventoryElement = { address: "lamp", context: "", commandPage: "/elements/lamp", uuid: "uuid", id: "lamp", key: "key", name: "Lamp", kind: "device", side: "instance", page: "/lights/lamp", deviceId: "lamp" };
     const calls: { path: string; body?: unknown }[] = [];
     const contract: ElementContract = { element: entry, properties: [], methods: [
       { name: "brightness", description: "", returns: "DeviceState", positional: "value", arguments: [{ name: "value", type: "number", in: "body", required: true }, { name: "confirmed", type: "boolean", in: "body", required: false }], transport: { method: "POST", path: "/api/devices/lamp/controls/setBrightness", body: "object", media: "application/json" } },
@@ -194,7 +219,7 @@ describe("shared HomeTruth client", () => {
     const ht = new HomeTruth({ transport: async (path, init) => {
       calls.push({ path, ...(init.body ? { body: JSON.parse(String(init.body)) } : {}) });
       if (path.endsWith("/api/inventory")) return { elements: [entry] };
-      if (path.endsWith("/api/inventory/uuid")) return contract;
+      if (path.endsWith("/api/inventory/lamp")) return contract;
       return {};
     } });
     await ht.connect("http://localhost");
@@ -215,7 +240,7 @@ describe("shared HomeTruth client", () => {
       const api = buildElementApi({ site, hub, node, page: "/switches/fan", origin: "http://localhost", routes: app.routes, version: "test" });
       for (const example of clientExamples(api)) {
         expect(example.code).toContain('import ht from "./ht"');
-        expect(example.code).toContain('ht.devices["lutron-fan"]');
+        expect(example.code).toContain('ht.devices["fan"]');
         expect(() => compilePlayground(example.code)).not.toThrow();
       }
       expect(clientExamples(api).find(example => example.name === "tag")!.code).toContain('"tagId":');

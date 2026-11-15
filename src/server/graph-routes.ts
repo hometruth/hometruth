@@ -1,43 +1,54 @@
-/**
- * The graph over HTTP.
- *
- * `GET /api/graph/:key` is what the Graph tab shows, as data: an element, its
- * connections, one level beyond, and the coordinates they are drawn at. Because
- * the layout is computed on the server, a caller that wants to draw it
- * differently still gets a usable answer, and one that only wants the
- * relationships can ignore the geometry.
- *
- * `GET /api/graph` is the whole thing, for an agent or a script that wants to
- * ask a question the UI does not answer: which devices implement a capability,
- * what a schema is referenced by, what a service touches.
- */
+/** The raw topology and the exact projected, positioned scene used by the graph page. */
 import { Hono } from "hono";
 import type { StateHub } from "../state/hub";
-import { DEFAULT_CAPS, ego } from "../graph/ego";
-import { layout } from "../graph/layout";
+import { parseGraphQuery, projectGraph } from "../graph/scene";
+import { layoutGraphScene, type PlacedGraphScene } from "../graph/scene-layout";
 import { errorJson, pageContext, type AppEnvironment } from "./http";
-import { parseViewState, renderFullGraphPage } from "../ui/graph-page";
-import { siteNode } from "../graph/instance-graph";
+import { renderGraphPage } from "../ui/graph-page";
+import { addressesFor } from "../element-api/addresses";
 
-const MAX_DEPTH = 3;
+/** Public request selectors use current names; projection identities stay internal. */
+function graphParameters(hub: StateHub, params: URLSearchParams): URLSearchParams | undefined {
+  const addresses = addressesFor(hub);
+  const resolved = new URLSearchParams();
+  for (const [key, value] of params) {
+    if (!value || !["focus", "selected", "expand"].includes(key)) { resolved.append(key, value); continue; }
+    const node = addresses.node(value);
+    if (node) { resolved.append(key, node.id); continue; }
+    if (key !== "expand") return undefined;
+    let group: unknown;
+    try { group = JSON.parse(value); } catch { return undefined; }
+    if (!Array.isArray(group)) return undefined;
+    if (group.length === 2 && group[0] === "room" && typeof group[1] === "string") {
+      const room = addresses.node(group[1]);
+      if (room?.kind !== "tag" || room.ids[0] !== "room") return undefined;
+      resolved.append(key, JSON.stringify(["room", room.id]));
+    } else if (group.length === 2 && group[0] === "kind" && typeof group[1] === "string" && addresses.topology.nodes().some(candidate => candidate.kind === group[1])) {
+      resolved.append(key, JSON.stringify(group));
+    } else if (group.length === 1 && group[0] === "unassigned") resolved.append(key, JSON.stringify(group));
+    else return undefined;
+  }
+  return resolved;
+}
 
-export function graphRoutes(hub: StateHub) {
+export function graphRoutes(hub: StateHub, layoutScene: typeof layoutGraphScene = layoutGraphScene) {
   const app = new Hono<AppEnvironment>();
   const load = () => hub.data.topology();
 
-  // The whole graph on its own page, reached from an element's Graph tab. Its
-  // own destination rather than a mode of the tab, because it is a different
-  // question: not "what is this made of" but "where does this sit in all of it".
-  app.get("/graph", (c) => {
+  app.get("/graph", async (c) => {
     const graph = load();
-    const url = new URL(c.req.url);
-    const focus = url.searchParams.get("focus") ?? undefined;
-    const page = renderFullGraphPage({
-      ctx: pageContext(c), graph, root: siteNode(),
-      ...(focus && graph.node(focus) ? { focus } : {}),
-      state: parseViewState(url.searchParams), base: url.pathname,
-    });
-    return page ? c.html(page) : errorJson(c, 404, "not_found", "No graph to show");
+    const params = graphParameters(hub, new URL(c.req.url).searchParams);
+    if (!params) return errorJson(c, 404, "not_found", "No such element in the graph");
+    const query = parseGraphQuery(params);
+    if (query.focus && !graph.node(query.focus)) return errorJson(c, 404, "not_found", "No such element in the graph");
+    let scene: PlacedGraphScene;
+    try {
+      scene = await layoutScene(projectGraph(graph, query));
+    } catch {
+      return errorJson(c, 503, "graph_unavailable", "The graph could not be laid out. Try a narrower view.");
+    }
+    c.header("Cache-Control", "no-store");
+    return c.html(renderGraphPage({ ctx: pageContext(c), scene }));
   });
 
   app.get("/api/graph", (c) => {
@@ -45,31 +56,25 @@ export function graphRoutes(hub: StateHub) {
     const side = c.req.query("side");
     const kind = c.req.query("kind");
     let nodes = graph.nodes();
-    if (side === "schema" || side === "instance") nodes = nodes.filter((node) => node.side === side);
+    if (side === "schema" || side === "instance" || side === "tag") nodes = nodes.filter((node) => node.side === side);
     if (kind) nodes = nodes.filter((node) => node.kind === kind);
     const ids = new Set(nodes.map((node) => node.id));
     const edges = graph.edges().filter((edge) => ids.has(edge.from) && ids.has(edge.to));
     return c.json({ nodes, edges, generatedAt: graph.generatedAt });
   });
 
-  app.get("/api/graph/:key", (c) => {
+  app.get("/api/graph/scene", async (c) => {
     const graph = load();
-    const key = c.req.param("key");
-    if (!graph.node(key)) return errorJson(c, 404, "not_found", "No such element in the graph");
-    const requested = Number(c.req.query("depth"));
-    const depth = Number.isFinite(requested) ? Math.max(0, Math.min(MAX_DEPTH, Math.trunc(requested))) : 2;
-    const view = ego(graph, key, depth, DEFAULT_CAPS);
-    if (!view) return errorJson(c, 404, "not_found", "No such element in the graph");
-    const placed = layout(view);
-    return c.json({
-      focus: placed.focus,
-      depth,
-      nodes: placed.nodes,
-      edges: placed.edges,
-      truncated: placed.truncated,
-      viewBox: placed.viewBox,
-      generatedAt: graph.generatedAt,
-    });
+    const params = graphParameters(hub, new URL(c.req.url).searchParams);
+    if (!params) return errorJson(c, 404, "not_found", "No such element in the graph");
+    const query = parseGraphQuery(params);
+    if (query.focus && !graph.node(query.focus)) return errorJson(c, 404, "not_found", "No such element in the graph");
+    try {
+      c.header("Cache-Control", "no-store");
+      return c.json(await layoutScene(projectGraph(graph, query)));
+    } catch {
+      return errorJson(c, 503, "graph_unavailable", "The graph could not be laid out. Try a narrower view.");
+    }
   });
 
   return app;

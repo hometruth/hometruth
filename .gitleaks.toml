@@ -23,3 +23,17 @@ condition = "AND"
 paths = ['''(^|/)src/devices/(cameras/wyze-cam-v3|treat-dispensers/tkenpro-2k-pet-camera-treat-dispenser)/index\.ts$''']
 regexTarget = "secret"
 regexes = ['''^(WyzeCamV3Secrets|TkenproPet3TSecrets)$''']
+
+[[allowlists]]
+description = "Public HAP characteristic identifier from the pinned generated catalog"
+condition = "AND"
+paths = ['''(^|/)src/bridges/homekit-catalog\.json$''']
+regexTarget = "secret"
+regexes = ['''^PM2_5Density$''']
+
+[[allowlists]]
+description = "Synthetic Roborock local keys and the AES key derived from them in the protocol tests"
+condition = "AND"
+paths = ['''(^|/)src/(protocols/roborock|devices/vacuums/roborock-vacuum)/[^/]+\.test\.ts$''']
+regexTarget = "secret"
+regexes = ['''^AbCdEfGh12345678$''', '''^ZyXwVuTs98765432$''', '''^df9348c5259aefbfdc5791f1831559d8$''']

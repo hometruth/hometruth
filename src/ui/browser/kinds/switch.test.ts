@@ -44,6 +44,14 @@ describe("switchView", () => {
     expect(switchView(input as Parameters<typeof switchView>[0], t, time)).toMatchObject(expected);
   });
 
+  test("labels remembered commands and assumptions instead of the latest poll time", () => {
+    for (const provenance of [{ stateSource: "commanded", commandedAt: AT }, { stateSource: "assumed", assumedAt: AT }] as const) {
+      const input = { readiness: "online", stale: false, observedAt: "2026-09-14T11:00:00.000Z", document: doc({ availability: "online", value: "on", ...provenance }) } as const;
+      expect(switchView(input, t, time).detail).toBe(`switch.${provenance.stateSource}{time=time(${AT})}`);
+      expect(switchView({ ...input, fault: { code: "unreachable", message: "no answer" } }, t, time).detail).toBe("no answer");
+    }
+  });
+
   test("actions render in schema order only when the document declares them, turnOn primary", () => {
     const full = switchView({ readiness: "online", stale: false, document: online("on") }, t, time);
     expect(full.actions.map((action) => [action.id, action.label, action.primary, action.enabled, action.state])).toEqual([

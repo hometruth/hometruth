@@ -14,12 +14,11 @@ export function frigateEventKey(data: EventData): string {
   return createHash("sha256").update(JSON.stringify(detection)).digest("hex");
 }
 
-/** Durable, bounded label metadata only. No images or video are accepted by the event schemas. */
+/** Durable label metadata retained indefinitely. No images or video are accepted by the event schemas. */
 export class FrigateEventHistory {
   private readonly db: Database;
 
-  constructor(path = DEFAULT_FRIGATE_HISTORY_PATH, private readonly capacity = 10_000) {
-    if (!Number.isInteger(capacity) || capacity < 1) throw new Error("Invalid Frigate history capacity");
+  constructor(path = DEFAULT_FRIGATE_HISTORY_PATH) {
     if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     this.db = new Database(path, { strict: true });
     if (path !== ":memory:") chmodSync(path, 0o600);
@@ -64,14 +63,13 @@ export class FrigateEventHistory {
       const result = this.db.query("INSERT OR IGNORE INTO events (key, at, subject, type, level, camera, object_id, event, labels) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
         frigateEventKey(event.data!), saved.at, saved.subject ?? null, saved.type, saved.level,
         event.data!.camera as string, event.data!.objectId as string, JSON.stringify(saved), JSON.stringify(detectionLabels(saved.data)));
-      if (result.changes) this.db.query("DELETE FROM events WHERE rowid IN (SELECT rowid FROM events ORDER BY at DESC, rowid DESC LIMIT -1 OFFSET ?)").run(this.capacity);
       return result.changes > 0;
     })();
   }
 
   recent(limit = 500, filter: EventFilter = {}): ServiceEvent[] {
     const matches = compileEventFilter(filter);
-    const maximum = Math.max(0, Math.min(this.capacity, Math.trunc(limit)));
+    const maximum = Math.max(0, Math.trunc(limit));
     if (!maximum) return [];
     const where: string[] = [];
     const args: (string | number)[] = [];
@@ -80,9 +78,9 @@ export class FrigateEventHistory {
     if (filter.atOrBefore !== undefined) { where.push("at <= ?"); args.push(filter.atOrBefore); }
     if (filter.types?.length) { where.push(`type IN (${filter.types.map(() => "?").join(",")})`); args.push(...filter.types); }
     if (filter.labels?.length) { where.push(`EXISTS (SELECT 1 FROM json_each(events.labels) WHERE value IN (${filter.labels.map(() => "?").join(",")}))`); args.push(...filter.labels.map(label => detectionLabel(label)!)); }
-    // The portable predicate runs before the result limit. Iterate the bounded
+    // The portable predicate runs before the result limit. Iterate the
     // archive so a rare match behind newer nonmatches is still returned.
-    args.push(filter.where ? this.capacity : maximum);
+    args.push(filter.where ? -1 : maximum);
     const statement = this.db.prepare<{ event: string }, (string | number)[]>(`SELECT event FROM events${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY at DESC, key DESC LIMIT ?`);
     const events: ServiceEvent[] = [];
     try {

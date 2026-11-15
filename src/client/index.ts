@@ -1,5 +1,11 @@
 /** HomeTruth's shared, inventory-driven client. Works in Bun, Node and browsers. */
 export interface InventoryElement {
+  /** Current, name-derived public address. Renaming changes this address. */
+  address: string;
+  context: string;
+  commandPage: string;
+  stateNode?: string;
+  stateAddress?: string;
   uuid: string;
   key: string;
   id: string;
@@ -130,28 +136,19 @@ export class HomeTruth {
     const connection: Connection = { request, inventory: result.elements, devices: {}, elements: {}, contracts: new Map() };
     const elements = Object.create(null) as Record<string, Element>;
     const devices = Object.create(null) as Record<string, Device>;
-    const names = new Map<string, string[]>();
     for (const entry of result.elements) {
       const handle = this.handle(connection, entry);
-      elements[entry.uuid] = handle;
-      if (entry.deviceId) devices[entry.deviceId] = handle as Device;
-      for (const name of new Set([entry.id, entry.key])) {
-        // The reserved site name never resolves to a similarly named device.
-        if (name === "root" && entry.kind !== "site") continue;
-        const ids = names.get(name) ?? []; ids.push(entry.uuid); names.set(name, ids);
-      }
+      elements[entry.address] = handle;
+      if (entry.deviceId) devices[entry.address] = handle as Device;
     }
     connection.elements = new Proxy(elements, { get(target, key: string | symbol) {
       if (typeof key !== "string" || key === "then") return undefined;
-      if (Object.hasOwn(target, key)) return target[key];
-      const ids = names.get(key);
-      if (!ids) throw new Error(`No element named "${key}". Inspect ht.inventory for available IDs`);
-      if (ids.length !== 1) throw new Error(`Element ID "${key}" is ambiguous; use its UUID from ht.inventory`);
-      return target[ids[0]!];
+      if (!Object.hasOwn(target, key)) throw new Error(`No element named "${key}". Inspect ht.inventory for current addresses`);
+      return target[key];
     } });
     connection.devices = new Proxy(devices, { get(target, key: string | symbol) {
       if (typeof key !== "string" || key === "then") return undefined;
-      if (!Object.hasOwn(target, key)) throw new Error(`No device named "${key}". Inspect ht.inventory for available IDs`);
+      if (!Object.hasOwn(target, key)) throw new Error(`No device named "${key}". Inspect ht.inventory for current addresses`);
       return target[key];
     } });
     this.#connection = connection;
@@ -168,7 +165,7 @@ export class HomeTruth {
       if (this.connected() !== connection) throw new Error("This handle belongs to a previous connection; look it up again in ht.elements");
       let result = connection.contracts.get(entry.uuid);
       if (!result) {
-        result = connection.request(`/api/inventory/${encodeURIComponent(entry.uuid)}`, { method: "GET" }) as Promise<ElementContract>;
+        result = connection.request(`/api/inventory/${encodeURIComponent(entry.address)}`, { method: "GET" }) as Promise<ElementContract>;
         connection.contracts.set(entry.uuid, result);
         result.catch(() => { connection.contracts.delete(entry.uuid); });
       }

@@ -1,3 +1,5 @@
+import { investigationListSchema, investigationSchema } from "../health/investigation";
+import { BRIDGE_OPERATIONS } from "../bridges/schemas";
 import { nodeRecordSchema } from "../state/schemas";
 import { eventSchema } from "../models/event-schema";
 import { filterConditionSchema, filterFieldsSchema, filterUpdateSchema, savedFilterSchema } from "../models/filter-schema";
@@ -26,7 +28,7 @@ import { filterConditionSchema, filterFieldsSchema, filterUpdateSchema, savedFil
  * written.
  */
 import { tokenCreateSchema } from "../auth/model";
-import { graphEdgeSchema, graphNodeSchema } from "../graph/schemas";
+import { graphEdgeSchema, graphNodeSchema, graphQueryParameters } from "../graph/schemas";
 import { kindleConfigSchema } from "../kindle/config";
 import { schemaCatalogEntries } from "../schema-catalog";
 import { binarySwitchSchema, deviceGroupConfigSchema, deviceGroupSettingsSchema, roomNameSchema, workflowSchema } from "../schemas";
@@ -95,6 +97,7 @@ const elementWithTags = object("Element tags", "One element and every tag now at
 
 const groupSwitchDocumentRef = "groupSwitchSchema" satisfies SchemaKey;
 const networkRuleState = { enum: ["on", "off", "missing", "unavailable"] } as const;
+const healthPolicy = object("Health policy", "Whether unreachability counts as unhealthy. Failed actions always count as unhealthy.", { unreachableIsUnhealthy: flag }, ["unreachableIsUnhealthy"]);
 
 /**
  * `METHOD /route/pattern` → the schemas it carries, keyed exactly as Hono
@@ -103,27 +106,42 @@ const networkRuleState = { enum: ["on", "off", "missing", "unavailable"] } as co
  * API description has nothing useful to say about.
  */
 export const OPERATIONS: Readonly<Record<string, Operation>> = {
+  ...BRIDGE_OPERATIONS,
+  "GET /api/health/investigations": { response: investigationListSchema },
+  "GET /api/health/investigations/:investigationId": { response: investigationSchema },
+  "GET /api/health/investigations/stream": { produces: "text/event-stream", frames: { investigations: investigationListSchema } },
   "GET /api/health/report": { response: "healthReportSchema", query: { period: { enum: ["24h", "7d", "30d"], default: "24h" } } },
   "GET /api/devices/:id/health": { response: "healthCheckSchema" },
   "POST /api/devices/:id/health/check": { response: "healthCheckSchema" },
+  "PUT /api/devices/:id/health/policy": { request: healthPolicy, response: healthPolicy },
   "GET /api/services/:id/health": { response: "healthCheckSchema" },
   "POST /api/services/:id/health/check": { response: "healthCheckSchema" },
+  "PUT /api/services/:id/health/policy": { request: healthPolicy, response: healthPolicy },
   // ---- Session ------------------------------------------------------------
   "POST /api/auth/sign-in": {
     request: object("Sign-in request", "Exchanges an API token for the session cookie a browser carries.", { token: { type: "string", minLength: 1, maxLength: 512 } }, ["token"]),
     response: object("Sign-in response", "The token that was accepted, named, with the verbs it holds.", { name: text(), permissions: list(text(32)) }, ["name", "permissions"]),
   },
   "POST /api/auth/sign-out": {
-    response: object("Sign-out response", "The session cookie has been cleared.", { signedOut: flag }, ["signedOut"]),
+    response: object("Sign-out response", "The browser session has been revoked and its cookie cleared.", { signedOut: flag }, ["signedOut"]),
   },
   "GET /api/auth/whoami": {
     response: object("Caller identity", "Who this request is, how it got in, and everything it reaches.", {
-      kid: id, name: text(), origin: { enum: ["token", "local-network"] },
+      kid: id, name: text(), origin: { enum: ["token", "session", "local-network"] },
       permissions: list(text(32)),
       reaches: text(400),
       devices: { oneOf: [{ const: "all" }, list(id)] },
     }, ["kid", "name", "origin", "permissions", "reaches", "devices"]),
   },
+
+  "GET /api/auth/sessions": { response: object("Signed-in browsers", "Signed-in browsers", {}) },
+  "POST /api/auth/sessions/:id/revoke": { response: object("Revoked browser", "Revoked browser", {}) },
+  "GET /api/auth/passkeys": { response: object("Passkeys", "Passkeys", {}) },
+  "POST /api/auth/passkeys/:id/revoke": { response: object("Revoked passkey", "Revoked passkey", {}) },
+  "POST /api/auth/passkeys/register/options": { response: object("WebAuthn creation options", "WebAuthn creation options", {}) },
+  "POST /api/auth/passkeys/register/verify": { response: object("Passkey registration", "Passkey registration", {}), request: { type: "object", description: "RegistrationResponseJSON and a name" }, status: 201 },
+  "POST /api/auth/passkeys/authenticate/options": { response: object("WebAuthn request options", "WebAuthn request options", {}) },
+  "POST /api/auth/passkeys/authenticate/verify": { response: object("Passkey sign-in", "Passkey sign-in", {}), request: { type: "object", description: "AuthenticationResponseJSON" } },
 
   // ---- Tokens -------------------------------------------------------------
   "GET /api/tokens": {
@@ -139,14 +157,14 @@ export const OPERATIONS: Readonly<Record<string, Operation>> = {
   // ---- Catalogs -----------------------------------------------------------
   "GET /api/health": { response: "healthResponseSchema" },
   "GET /api/inventory": {
-    response: object("Element inventory", "Every element the caller can inspect, with its UUID, object ID and page.", {
+    response: object("Element inventory", "Every visible element's current friendly address, identity metadata and page.", {
       elements: list(object("Inventory element", "An addressable element of this HomeTruth install.", {
-        uuid: { type: "string", format: "uuid" }, key: text(2000), id: text(2000), name: text(400), kind: text(100),
-        side: { enum: ["instance", "schema", "tag"] }, page: text(2000), deviceId: text(),
-      }, ["uuid", "key", "id", "name", "kind", "side", "page"])),
+        uuid: { type: "string", format: "uuid" }, key: text(2000), id: text(2000), address: text(2000), name: text(400), kind: text(100), context: text(2000),
+        side: { enum: ["instance", "schema", "tag"] }, page: text(2000), commandPage: text(2000), deviceId: text(), stateNode: text(2000), stateAddress: text(2000),
+      }, ["uuid", "key", "id", "address", "name", "kind", "context", "side", "page", "commandPage"])),
     }, ["elements"]),
   },
-  "GET /api/inventory/:uuid": {
+  "GET /api/inventory/:address": {
     response: object("Element contract", "An element's identity, properties and callable methods for the shared client.", {
       element: { type: "object" }, properties: list({ type: "object" }), methods: list({ type: "object" }),
     }, ["element", "properties", "methods"]),
@@ -197,7 +215,7 @@ export const OPERATIONS: Readonly<Record<string, Operation>> = {
   // ---- All events ---------------------------------------------------------
   "GET /api/events": {
     response: "eventsResponseSchema",
-    query: { limit: { type: "integer", minimum: 1, maximum: 200 }, subject: id, type: text(400), label: text(), where: eventWhere, filter: id },
+    query: { before: text(512), limit: { type: "integer", minimum: 1, maximum: 200 }, subject: id, type: text(400), label: text(), where: eventWhere, filter: id },
   },
   "GET /api/events/stream": {
     frames: { "service-event": ref(eventSchema) },
@@ -225,6 +243,8 @@ export const OPERATIONS: Readonly<Record<string, Operation>> = {
       associated: flag,
       mac: text(),
       currentAddress: text(),
+      vlan: { type: "integer", description: "VLAN reported by the network provider. Absent when unknown; do not assume VLAN 1." },
+      ssid: text(),
       addressMatches: flag,
       isolated: { type: ["boolean", "null"], description: "Whether the HomeTruth internet block is on; null when it cannot be inspected. DNS redirection alone does not imply internet isolation." },
       isolation: object("HomeTruth isolation", "Observed provider rules, separate from the isolation service's desired setting.", {
@@ -281,6 +301,11 @@ export const OPERATIONS: Readonly<Record<string, Operation>> = {
   "GET /api/buttons/:id/workflow": {
     response: object("Button workflow", "The workflow graph this button runs, and the devices it may drive.", { workflow: ref(workflowSchema) }, ["workflow"]),
   },
+  "POST /api/buttons/:id/workflow/preview": {
+    request: object("Workflow preview", "Validate a draft without saving or operating devices. Supply a predicate assumption to simulate; actions are recorded, and waits use virtual time.", { workflow: ref(workflowSchema), assumption: { enum: ["true", "false", "unknown"] }, draft: { type: "boolean", description: "Check the shape of an unfinished browser draft only, without validating executable connections." } }, ["workflow"]),
+    response: object("Workflow preview", "Validation and an optional simulated trace. No devices are read or controlled.", { valid: flag, simulation: { type: "object" } }, ["valid"]),
+  },
+  "POST /api/buttons/:id/workflow/cancel": { response: object("Cancellation", "Requests cancellation and cleanup of the current run.", { cancelled: flag, run: { type: "object" } }, ["cancelled", "run"]) },
   "PUT /api/buttons/:id/workflow": {
     request: "workflowButtonUpdateRequestSchema",
     response: object("Button workflow", "The workflow graph now saved for this button.", { workflow: ref(workflowSchema) }, ["workflow"]),
@@ -439,6 +464,14 @@ export const OPERATIONS: Readonly<Record<string, Operation>> = {
   "GET /api/elements/:key": {
     response: object("Element", "One taggable element and its tags.", { element: { type: "object" } }, ["element"]),
   },
+  "GET /api/elements/:key/events": {
+    response: "eventsResponseSchema",
+    query: { limit: { type: "integer", minimum: 1, maximum: 200 }, subject: id, type: text(400), label: text(), where: eventWhere, filter: id },
+  },
+  "GET /api/elements/:key/events/stream": {
+    frames: { "service-event": ref(eventSchema) },
+    query: { subject: id, type: text(400), label: text(), where: eventWhere, filter: id },
+  },
   "GET /api/elements/:key/tags": { response: elementWithTags },
   "POST /api/elements/:key/tags": { request: tagAssignmentSchema, response: elementWithTags },
   "DELETE /api/elements/:key/tags/:id": { response: elementWithTags },
@@ -448,9 +481,9 @@ export const OPERATIONS: Readonly<Record<string, Operation>> = {
     response: object("Graph", "Every element and every connection, unpositioned.", {
       nodes: list(ref(graphNodeSchema)), edges: list(ref(graphEdgeSchema)), generatedAt: stamp,
     }, ["nodes", "edges", "generatedAt"]),
-    query: { side: { enum: ["schema", "instance"] }, kind: text(64) },
+    query: { side: { enum: ["schema", "instance", "tag"] }, kind: text(64) },
   },
-  "GET /api/graph/:key": { response: "graphResponseSchema", query: { depth: { type: "integer", minimum: 0, maximum: 3 } } },
+  "GET /api/graph/scene": { response: "graphResponseSchema", query: graphQueryParameters },
 
   // ---- The Kindle view ----------------------------------------------------
   "GET /api/kindle/catalog": {

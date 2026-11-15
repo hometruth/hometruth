@@ -1,3 +1,5 @@
+import { definition, action, end } from "../../tests/fixtures/workflow";
+import { emptyWorkflow } from "../workflows/definition";
 import { describe, expect, test } from "bun:test";
 import { Button, type ButtonPressOptions } from "../models/button";
 import { BinarySwitch, type BinarySwitchState } from "../models/binary-switch";
@@ -49,15 +51,10 @@ class SwitchDevice extends Device {
 
 function workflowSite(): { site: Site; relay: SwitchDevice; writer: DeviceConfigWriter; saved: { workflow?: unknown; added: unknown[] } } {
   const relay = new SwitchDevice(new MemorySwitch("relay"));
-  const workflow = new WorkflowButtonDevice({ id: "cycle", name: "Cycle" }, { workflow: {
-    start: "on",
-    nodes: [
-      { id: "on", type: "action", device: "relay", control: "turnOn", next: "wait" },
-      { id: "wait", type: "delay", durationMs: 0, next: "off" },
-      { id: "off", type: "action", device: "relay", control: "turnOff", next: "done" },
-      { id: "done", type: "end" },
-    ],
-  } }, {}, { device: (id) => id === relay.id ? relay : (() => { throw new Error(`Unknown ${id}`); })() });
+  const workflow = new WorkflowButtonDevice({ id: "cycle", name: "Cycle" }, { workflow: definition([
+    action("on", "wait"), { id: "wait", type: "delay", durationMs: 1, next: "off" },
+    { id: "off", type: "action", action: { target: "relay", operation: "binarySwitch.turnOff", input: {} }, next: "done", onError: "failed" }, end(), end("failed", "failure"),
+  ]) }, {}, { device: (id) => id === relay.id ? relay : (() => { throw new Error(`Unknown ${id}`); })() });
   const saved: { workflow?: unknown; added: unknown[] } = { added: [] };
   const writer: DeviceConfigWriter = {
     add: async (entry) => { saved.added.push(entry); },
@@ -105,17 +102,24 @@ describe("button routes", () => {
     const page = await app.request("/buttons/cycle");
     expect(page.status).toBe(200);
     const html = await page.text();
-    expect(html).toContain("data-steps-editor");
-    expect(html).toContain("Edit as state machine");
+    expect(html).toContain('id="workflow-editor"');
+    expect(html).toContain("workflow-editor.js");
     expect(await (await app.request("/buttons")).text()).toContain("Create Workflow Button");
 
     const document = await app.request("/api/buttons/cycle/workflow");
     expect(document.status).toBe(200);
-    expect((await document.json()).workflow.start).toBe("on");
+    expect((await document.json()).workflow.graph.entry).toBe("on");
+
+    const preview = await app.request("/api/buttons/cycle/workflow/preview", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ workflow: (await (await app.request("/api/buttons/cycle/workflow")).json()).workflow, assumption: "true" }) });
+    expect(preview.status).toBe(200);
+    expect((await preview.json()).simulation.run.status).toBe("complete");
+    expect(await relay.relay.getState()).toBe("off");
+    expect(saved.workflow).toBeUndefined();
+    expect((await (await app.request("/api/buttons/cycle/workflow")).json()).run.status).toBe("idle");
 
     const pressed = await app.request("/api/buttons/cycle/press", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
     expect(pressed.status).toBe(200);
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
     expect(await relay.relay.getState()).toBe("off");
     expect((await (await app.request("/api/buttons/cycle/workflow")).json()).run.status).toBe("complete");
 
@@ -125,7 +129,7 @@ describe("button routes", () => {
     expect(invalid.status).toBe(400);
     expect(saved.workflow).toBeUndefined();
 
-    const updated = { start: "done", nodes: [{ id: "done", type: "end" as const }] };
+    const updated = emptyWorkflow("Updated workflow");
     const edited = await app.request("/api/buttons/cycle/workflow", {
       method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ workflow: updated }),
     });
@@ -142,6 +146,6 @@ describe("button routes", () => {
     });
     expect(created.status).toBe(201);
     expect(await created.json()).toEqual({ id: "new-button", page: "/buttons/new-button" });
-    expect(saved.added).toEqual([{ id: "new-button", name: "New Button", model: "workflow-button", config: { workflow: { start: "start", nodes: [{ id: "start", type: "end", label: "Complete" }] } } }]);
+    expect(saved.added).toEqual([{ id: "new-button", name: "New Button", model: "workflow-button", config: { workflow: emptyWorkflow("New Button") } }]);
   });
 });

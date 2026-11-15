@@ -56,7 +56,7 @@ function listeners(): Listeners {
   };
 }
 
-function harness(options: { hidden?: boolean; seed?: NodeRecord[] } = {}) {
+function harness(options: { hidden?: boolean; seed?: NodeRecord[]; apiPath?: (path: string) => string } = {}) {
   FakeSource.instances = [];
   const timers: Timer[] = [];
   let nextId = 1;
@@ -66,6 +66,7 @@ function harness(options: { hidden?: boolean; seed?: NodeRecord[] } = {}) {
   const states: ConnectionState[] = [];
   const client = createStateClient({
     EventSource: FakeSource,
+    ...(options.apiPath ? { apiPath: options.apiPath } : {}),
     fetch: (url, init) => new Promise<ResponseLike>((resolve, reject) => { fetches.push({ url, init, respond: resolve, reject }); }),
     document,
     window,
@@ -467,4 +468,19 @@ describe("state client invoke", () => {
     h.fetches[0]!.reject(new Error("Failed to fetch"));
     await expect(promise).rejects.toThrow("Failed to fetch");
   });
+});
+
+
+test("friendly transport paths do not change state graph subscriptions or response identity", async () => {
+  const h = harness({ apiPath: path => path.replace("/devices/internal-17/", "/devices/exhaust-fan/").replace("node=device%2Finternal-17", "node=exhaust-fan") });
+  h.client.subscribe("device/internal-17", () => {}, "live");
+  h.run(COALESCE_MS);
+  expect(h.source().url).toBe("/api/state/stream?node=exhaust-fan&tier=live");
+  const command = h.client.invoke("device/internal-17", "binarySwitch", "turnOn");
+  expect(h.fetches[0]?.url).toBe("/api/devices/exhaust-fan/capabilities/binarySwitch/controls/turnOn");
+  h.source().frame("state", record("device/internal-17", 2));
+  h.fetches[0]!.respond(h.ok());
+  await command;
+  expect(h.client.read("device/internal-17")?.node).toBe("device/internal-17");
+  h.client.close();
 });

@@ -10,6 +10,8 @@
 import { Hono } from "hono";
 import type { Principal } from "../auth/scope";
 import type { Site } from "../site";
+import type { StateHub } from "../state/hub";
+import { addressesFor } from "../element-api/addresses";
 import { assetVersion, pageContext, type AppEnvironment } from "../server/http";
 import { renderApiPage } from "../ui/api-page";
 import { buildOpenApiDocument, describedSite, type RegisteredRoute } from "./document";
@@ -21,6 +23,7 @@ export function openApiRoutes(
   site: Site,
   routes: () => readonly RegisteredRoute[],
   trustsLocalNetwork: boolean,
+  hub: StateHub,
 ) {
   const app = new Hono<AppEnvironment>();
 
@@ -36,6 +39,7 @@ export function openApiRoutes(
       origin: new URL(context.req.url).origin,
       version: assetVersion(),
       trustsLocalNetwork,
+      addresses: addressesFor(hub).mappings,
     });
   };
 

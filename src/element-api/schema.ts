@@ -48,16 +48,24 @@ export function properties(input: Schema, document: OpenApiDocument, prefix = ""
   const next = new Set(seen); if (typeof input.$ref === "string") next.add(input.$ref);
   const schema = resolveSchema(input, document);
   const result: Property[] = [];
-  for (const branch of ["allOf", "oneOf", "anyOf"]) if (Array.isArray(schema[branch])) {
-    for (const value of schema[branch] as Json[]) result.push(...properties(record(value), document, prefix, next));
-  }
   for (const [name, value] of Object.entries(record(schema.properties))) {
+    // `false` forbids the property here; it declares no field.
+    if (value === false) continue;
     const child = resolveSchema(record(value), document);
     const path = prefix ? `${prefix}.${name}` : name;
     result.push({ path, type: child.type === "object" || child.properties ? "object" : child.type === "array" ? "array" : typeScript(record(value), document), required: Array.isArray(schema.required) && schema.required.includes(name), description: typeof child.description === "string" ? child.description : "", schema: child });
     result.push(...properties(record(value), document, path, next));
   }
   if (schema.items) result.push(...properties(record(schema.items), document, `${prefix}[]`, next));
+  // A field this schema declares itself keeps that declaration: a branch that
+  // mentions it only narrows which combinations are valid. Fields that exist
+  // only in branches are merged across the branches that declare them.
+  const declared = new Set(result.map(property => property.path));
+  for (const branch of ["allOf", "oneOf", "anyOf"]) if (Array.isArray(schema[branch])) {
+    for (const value of schema[branch] as Json[]) {
+      result.push(...properties(record(value), document, prefix, next).filter(property => !declared.has(property.path)));
+    }
+  }
   const merged = new Map<string, Property>();
   for (const property of result) {
     const prior = merged.get(property.path);

@@ -95,7 +95,7 @@ export const schemaCatalogEntries = [
   }),
   { key: "graphNodeSchema", title: "Graph node", typeName: "GraphNode", category: "api", description: "One element in the system graph: what it is, where it lives, and the schema it is an instance of.", schema: graphNodeSchema },
   { key: "graphEdgeSchema", title: "Graph edge", typeName: "GraphEdge", category: "api", description: "One connection between two elements, stored once in its canonical direction, with the role it plays.", schema: graphEdgeSchema },
-  { key: "graphResponseSchema", title: "Graph response", typeName: "GraphResponse", category: "api", description: "An element's own connections and one level beyond, already positioned for drawing.", schema: graphResponseSchema },
+  { key: "graphResponseSchema", title: "Graph scene", typeName: "GraphScene", category: "api", description: "A bounded Home, Dependencies or Model view with canonical identities, counts and shared drawing geometry.", schema: graphResponseSchema },
   { key: "nodeRecordSchema", title: "State node record", typeName: "NodeRecord", category: "api", description: "One node of the state graph as GET /api/state/stream sends it: the last good value, the current fault if any, and when each was seen.", schema: nodeRecordSchema },
   { key: "streamHelloSchema", title: "State stream hello", typeName: "StreamHello", category: "api", description: "The first frame of the state stream: the worker generation, the observation tier, and the nodes the stream carries.", schema: streamHelloSchema },
   { key: "streamObservedSchema", title: "State stream observed", typeName: "StreamObserved", category: "api", description: "Polls that changed nothing, coalesced once per flush: node id to newest observation time.", schema: streamObservedSchema },
@@ -176,7 +176,7 @@ export const schemaCatalogEntries = [
     title: "Workflow",
     typeName: "Workflow",
     category: "business",
-    description: "A directed state-machine graph of device actions, delays, conditions, and terminal nodes.",
+    description: "A versioned, portable state machine with typed actions, decisions, parallel branches, repeats, bounded waits, and terminal outcomes.",
     schema: workflowSchema,
   },
   {

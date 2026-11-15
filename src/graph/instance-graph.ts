@@ -59,16 +59,13 @@ export const deviceElement = (id: string): NodeId => elementKey("device", id);
 /**
  * The families that hang off the root, in navigation order.
  *
- * `page` is only set where an index page actually exists. HomeTruth has no
- * `/devices`, `/rooms`, or `/models` index today: devices are listed on the
- * home page, which is the root itself, and rooms and models have no index at
- * all. Those catalogs are still real nodes because they are real groupings —
- * a node with no page simply is not a link. The gap is worth filling later,
- * and the graph is what makes it visible.
+ * `page` is only set where this catalog has an index. Rooms have their own
+ * index even though their values live on the tag side of the graph. A catalog
+ * without a page remains a grouping, but does not render as a link.
  */
 export const CATALOGS: readonly { readonly id: string; readonly name: string; readonly page: string; readonly kinds: readonly string[] }[] = [
   { id: "devices", name: "Devices", page: "", kinds: ["device"] },
-  { id: "rooms", name: "Rooms", page: "", kinds: ["room"] },
+  { id: "rooms", name: "Rooms", page: "/rooms", kinds: ["room"] },
   { id: "groups", name: "Groups", page: "/groups", kinds: ["group", "speaker-group"] },
   { id: "switches", name: "Switches", page: "/switches", kinds: ["group-switch"] },
   { id: "services", name: "Services", page: "/services", kinds: ["service"] },

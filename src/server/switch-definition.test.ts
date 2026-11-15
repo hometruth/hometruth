@@ -41,7 +41,7 @@ describe("switch definitions in Settings", () => {
     expect(html).not.toContain("/zone/8/");
     const groupPage = await (await app.request("/groups/kitchen-lights")).text();
     expect(groupPage).toContain('Group · <a href="/groups/kitchen-lights">Kitchen Lights');
-    expect(groupPage).toContain("POST /api/device-groups/kitchen-group/switch/turn-on {}");
+    expect(groupPage).toContain("POST /api/device-groups/kitchen-lights/switch/turn-on {}");
     expect(groupPage).toContain('href="/lights/other"');
     expect(groupPage).toContain("readings are mixed or unknown");
     expect(groupPage).toContain("light.turnOn()");

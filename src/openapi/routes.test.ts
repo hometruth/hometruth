@@ -42,8 +42,9 @@ describe("the API description", () => {
     const document = await (await app().request("/api/openapi.json")).json();
     const parameter = document.paths["/api/switches/{id}"].get.parameters
       .find((entry: { name: string }) => entry.name === "id");
-    expect(parameter.schema.enum).toEqual(["relay"]);
-    expect(parameter["x-hometruth-labels"]).toEqual({ relay: "Gate relay" });
+    // The path takes the friendly address derived from the device's name, not its stored id.
+    expect(parameter.schema.enum).toEqual(["gate-relay"]);
+    expect(parameter["x-hometruth-labels"]).toEqual({ "gate-relay": "Gate relay" });
   });
 
   test("has a page that lists every operation before it is painted", async () => {

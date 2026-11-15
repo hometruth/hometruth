@@ -1,18 +1,5 @@
-/**
- * Signing in, signing out, and the tokens themselves.
- *
- * Two of these are unusual and worth naming. `POST /api/auth/sign-in` is the
- * only policed thing that is public, because it is where an unauthenticated
- * caller is *supposed* to arrive; it grants nothing it was not already given,
- * since it only accepts a token that already verifies. And `POST /api/tokens`
- * is the only response in the app that contains a secret — once, for the
- * caller that asked for it, and never again from any route.
- *
- * Issuing requires `admin` over the whole site (see `policy.ts`), so a token
- * cannot mint a broader one than itself: a kitchen-scoped token is not an
- * admin of the site and never reaches this route at all.
- */
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { criteriaProblem } from "../models/automatic-group";
 import type { Site } from "../site";
 import type { TagStore } from "../tags/store";
@@ -20,12 +7,13 @@ import { groupSchemaChoices } from "../models/automatic-group";
 import { renderSignInPage, safeNext } from "../ui/sign-in-page";
 import { renderTokensPage } from "../ui/tokens-page";
 import { describeSubject, validateTokenCreate, type TokenCreate } from "../auth/model";
-import { clearSessionCookie, clientAddress, SESSION_COOKIE } from "../auth/guard";
+import { clientAddress } from "../auth/guard";
+import { browserOrigin, clearSessionCookie, currentSession, startSession } from "../auth/browser-session";
+import { browserAuthRoutes, authRateLimit } from "./browser-auth-routes";
 import { isPrivateAddress, trustsLocalNetwork } from "../auth/network";
 import type { TokenStore } from "../auth/store";
 import { describeValidationErrors } from "../validation";
 import { errorJson, pageContext, requestJson, type AppEnvironment } from "./http";
-import { setCookie } from "hono/cookie";
 
 /** The token record as the API returns it: everything but the secret, which is not kept. */
 function publicToken(token: import("../auth/store").TokenRecord, groupName: (id: string) => string | undefined) {
@@ -34,9 +22,14 @@ function publicToken(token: import("../auth/store").TokenRecord, groupName: (id:
 
 export function authRoutes(tokens: TokenStore, site: Site, tags: TagStore, trustLocalNetwork = trustsLocalNetwork()): Hono<AppEnvironment> {
   const app = new Hono<AppEnvironment>();
+  app.use("/api/auth/*", bodyLimit({ maxSize: 64 * 1024, onError: c => errorJson(c, 413, "invalid_request", "Sign-in request is too large") }));
+  const limited = authRateLimit();
+  app.route("/", browserAuthRoutes(tokens));
   const groupName = (id: string) => site.deviceGroups.find(group => group.id === id)?.name;
 
   app.get("/sign-in", context => {
+    const browser = currentSession(context, tokens);
+    if (browser && context.req.query("reauth") !== "1") return context.redirect(safeNext(context.req.query("next")), 303);
     // Whether *this* caller is trusted, not merely whether the site would
     // trust a local one: someone reading this page was refused, so saying
     // "you already have full access" without checking would be a lie that
@@ -48,21 +41,25 @@ export function authRoutes(tokens: TokenStore, site: Site, tags: TagStore, trust
   });
 
   app.post("/api/auth/sign-in", async context => {
+    if (!browserOrigin(context)) return errorJson(context, 403, "https_required", "Browser sign-in requires trusted HTTPS");
+    if (!limited(clientAddress(context))) return errorJson(context, 429, "rate_limited", "Wait a minute before trying again");
     const body = await requestJson(context) as { token?: unknown } | undefined;
     const presented = typeof body?.token === "string" ? body.token.trim() : "";
     const verified = presented ? tokens.verify(presented) : { ok: false as const, reason: "malformed" as const };
     // One message for every failure: a caller guessing tokens learns nothing
     // about whether the id existed, was revoked, or simply expired.
     if (!verified.ok) return errorJson(context, 401, "unauthenticated", "That token is not valid");
-    setCookie(context, SESSION_COOKIE, presented, {
-      path: "/", httpOnly: true, sameSite: "Lax",
-      secure: new URL(context.req.url).protocol === "https:",
-      maxAge: 60 * 60 * 24 * 365,
-    });
+    const existing = currentSession(context, tokens);
+    if (existing && existing.token.kid !== verified.token.kid) {
+      return errorJson(context, 403, "invalid_request", "Sign out before changing access grants");
+    }
+    startSession(context, tokens, verified.token.kid);
     return context.json({ name: verified.token.name, permissions: verified.token.permissions });
   });
 
   app.post("/api/auth/sign-out", context => {
+    const browser = currentSession(context, tokens);
+    if (browser) tokens.browsers.revoke(browser.session.id, browser.token.kid);
     clearSessionCookie(context);
     return context.json({ signedOut: true });
   });

@@ -166,7 +166,7 @@ test("the camera labels page includes photo cameras in its device menu and appli
   expect(html).toContain('name="event-subject" value="reveal-camera"');
   expect(html).toContain("Photo-only observation");
   expect(html).not.toContain("Video-only observation");
-  const history = await (await app.request("/api/services/frigate/events?where=" + where)).json();
+  const history = await (await app.request("/api/services/camera-labels/events?where=" + where)).json();
   expect(history.subjects).toEqual(["video-camera", "reveal-camera"]);
   expect(history.events).toHaveLength(1);
   expect(history.events[0]).toMatchObject({ subject: "reveal-camera", type: "photo_labeled" });
@@ -187,12 +187,12 @@ test("a saved multi-camera Filter scopes pagination, counts and live events to e
   expect(created.status).toBe(201);
   const saved = await created.json() as SavedFilter;
   const query = `?filter=${saved.filter.id}`;
-  const first = await (await app.request("/api/services/frigate/events" + query + "&limit=1")).json();
-  const second = await (await app.request("/api/services/frigate/events" + query + "&limit=1&before=" + first.nextCursor)).json();
+  const first = await (await app.request("/api/services/camera-labels/events" + query + "&limit=1")).json();
+  const second = await (await app.request("/api/services/camera-labels/events" + query + "&limit=1&before=" + first.nextCursor)).json();
   expect(new Set([...first.events, ...second.events].map((event: ServiceEvent) => event.subject))).toEqual(new Set(["front", "yard"]));
   expect(second.nextCursor).toBeUndefined();
   expect(first.labelCounts).toEqual({ person: 2 });
-  const stream = new SseFrameReader(await app.request("/api/services/frigate/stream" + query));
+  const stream = new SseFrameReader(await app.request("/api/services/camera-labels/stream" + query));
   try {
     const backlog = await stream.next(3);
     expect(backlog.filter(frame => frame.event === "service-event")).toHaveLength(2);
@@ -206,7 +206,7 @@ test("a saved multi-camera Filter scopes pagination, counts and live events to e
       expect(frames[1]?.event).toBe("detection-labels");
     }
   } finally { await stream.close(); }
-  const conflicting = await (await app.request("/api/services/frigate/events" + query + "&subject=excluded")).json();
+  const conflicting = await (await app.request("/api/services/camera-labels/events" + query + "&subject=excluded")).json();
   expect(conflicting.events).toEqual([]); expect(conflicting.labelCounts).toEqual({});
 });
 
@@ -277,7 +277,7 @@ describe("service routes", () => {
 
   test("GET /services/:id renders one control per action, already showing what that action has standing", async () => {
     const { app } = pairingFixture(new Date(Date.now() + 42_000).toISOString());
-    const html = await (await app.request("/services/hue-proxy")).text();
+    const html = await (await app.request("/services/hue-bridge-proxy")).text();
     expect(html).toContain('data-service-action="link-button"');
     // The label is the catalog's, keyed by the action's own id.
     expect(html).toMatch(/data-action="link-button"[^>]*>Open pairing</u);
@@ -288,7 +288,7 @@ describe("service routes", () => {
 
   test("an action that has nothing standing renders its control at rest", async () => {
     const { app } = pairingFixture();
-    const html = await (await app.request("/services/hue-proxy")).text();
+    const html = await (await app.request("/services/hue-bridge-proxy")).text();
     expect(html).toContain('data-service-action="link-button"');
     expect(html).not.toContain('data-action="link-button" data-state="active"');
     expect(html).toContain("<span class=\"action-state\" data-action-state></span>");
@@ -296,12 +296,24 @@ describe("service routes", () => {
 
   test("POST /api/services/:id/actions/:action performs it and answers with the new deadline", async () => {
     const { app, service } = pairingFixture();
-    const response = await app.request("/api/services/hue-proxy/actions/link-button", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+    const response = await app.request("/api/services/hue-bridge-proxy/actions/link-button", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
     expect(response.status).toBe(200);
     const body = await response.json() as { serviceId: string; action: string; detail: string; until: string };
     expect(body).toMatchObject({ serviceId: "hue-proxy", action: "link-button", detail: "Pairing open for 60s" });
     expect(Date.parse(body.until)).toBeGreaterThan(Date.now());
     expect(service.presses).toBe(1);
+  });
+
+  test("service pages and API routes accept only the current friendly name", async () => {
+    const { app, service } = pairingFixture();
+    for (const path of ["/services/hue-proxy", "/api/services/hue-proxy/events"]) {
+      const response = await app.request(path);
+      expect(response.status).toBe(404);
+      expect(response.headers.get("location")).toBeNull();
+    }
+    const response = await app.request("/api/services/hue-proxy/actions/link-button", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+    expect(response.status).toBe(404);
+    expect(service.presses).toBe(0);
   });
 
   test("GET /services/:id 404s for an unknown service", async () => {

@@ -5,7 +5,6 @@ import type { RegisteredDevice } from "../site";
 import { tagLabel, type Tag } from "../tags/model";
 import { groupSwitchPage } from "../page-urls";
 import { deviceNode, groupNode } from "../state/protocol";
-import { renderRoomPicker, ROOM_PICKER_SCRIPT } from "./room-picker";
 import { SWITCH_DEFINITION_CSS } from "./switch-definition";
 import { GROUP_PROPERTIES_SCRIPT, SWITCH_GAP_CSS, SWITCH_GAP_SCRIPT } from "./switch-page";
 import { escapeHtml, htElement, renderPage, type PageContext } from "./shell";
@@ -433,7 +432,7 @@ export function renderDeviceGroupBuilder({ ctx, devices, canCreate, rooms = [], 
 
 export function renderSelectedGroupPage({ ctx, group, snapshot, canEdit = false, switchDefinition = "", devices = [], rooms = [], schemas = [], tags = [] }: { ctx: PageContext; group: DeviceGroup; snapshot?: GroupSnapshot; canEdit?: boolean; switchDefinition?: string; devices?: readonly RegisteredDevice[]; rooms?: readonly string[]; schemas?: readonly GroupSchemaChoice[]; tags?: readonly GroupTagChoice[] }): string {
   const { t } = ctx.i18n;
-  return renderPage({ ctx, title: group.name, nav: "groups", css: CSS + SWITCH_DEFINITION_CSS + SWITCH_GAP_CSS, messages: ["grouping.", "room.", "switch."], script: SWITCH_GAP_SCRIPT + GROUP_PROPERTIES_SCRIPT + SCRIPT + ROOM_PICKER_SCRIPT,
+  return renderPage({ ctx, title: group.name, nav: "groups", css: CSS + SWITCH_DEFINITION_CSS + SWITCH_GAP_CSS, messages: ["grouping.", "room.", "switch."], script: SWITCH_GAP_SCRIPT + GROUP_PROPERTIES_SCRIPT + SCRIPT,
     // Seeding every member's device node lets the first subscribe (below the STREAM_LIMITS.maxNodes
     // margin the client-side script also checks) deliver a cached record synchronously, no flash.
     nodes: [...(group.asSwitch ? [groupNode(group.id)] : []), ...(group.members.length <= 80 ? group.members.map(deviceNode) : [])],
@@ -442,8 +441,7 @@ export function renderSelectedGroupPage({ ctx, group, snapshot, canEdit = false,
     <div data-device-group data-live-group data-group-id="${escapeHtml(group.id)}" data-writable="${canEdit}" data-as-switch="${Boolean(group.asSwitch)}">
     ${group.asSwitch ? htElement(ctx, "ht-switch", groupNode(group.id)) : ""}
     <button class="btn" type="button" data-group-refresh>${escapeHtml(t("grouping.refresh"))}</button><p class="feedback group-results" role="status" data-group-feedback></p>${preview(ctx, true, snapshot)}${snapshot ? `<script type="application/json" data-group-snapshot nonce="${escapeHtml(ctx.nonce)}">${JSON.stringify({ ...snapshot, canSwitch: isGroupSwitch(snapshot), members: snapshot.members.map(member => ({ ...member, page: devices.find(device => device.id === member.id)?.page })) }).replaceAll("<", "\\u003c")}</script>` : ""}
-    ${group.builtIn ? "" : `<section><h2>${escapeHtml(t("room.label"))}</h2>${renderRoomPicker(ctx, group, { endpoint: `/api/device-groups/${encodeURIComponent(group.id)}/settings`, writable: canEdit })}</section>
-    <section id="switch-settings"><h2>${escapeHtml(t("grouping.switchTitle"))}</h2><form data-group-switch>
+    ${group.builtIn ? "" : `<section id="switch-settings"><h2>${escapeHtml(t("grouping.switchTitle"))}</h2><form data-group-switch>
       <label class="group-switch-choice"><input type="checkbox" name="asSwitch"${group.asSwitch ? " checked" : ""} disabled>${escapeHtml(t("grouping.asSwitch"))}</label>
       <p class="note" data-group-switch-hint>${escapeHtml(t(snapshot && isGroupSwitch(snapshot) ? "grouping.switchHint" : "grouping.switchUnavailable"))}</p>
       <button type="submit" class="btn" disabled>${escapeHtml(t("grouping.saveSwitch"))}</button>

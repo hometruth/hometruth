@@ -77,7 +77,7 @@ const DOG_SCRIPT = String.raw`
     $("video-status").textContent = "";
     if (!camera || !videoWanted || document.hidden) return;
     videoImage.hidden = false;
-    videoImage.src = videoUrl = "/api/automations/dog-announcer/stream.mjpeg?cameraId=" + encodeURIComponent(camera.id) + "&t=" + Date.now();
+    videoImage.src = videoUrl = ht.apiPath("/api/automations/dog-announcer/stream.mjpeg?cameraId=" + encodeURIComponent(camera.id) + "&t=" + Date.now());
   }
   videoImage.onload = () => {
     if (!videoUrl) return;
@@ -119,8 +119,8 @@ const DOG_SCRIPT = String.raw`
       if (!ht.state) { requestAnimationFrame(subscribe); return; }
       releaseVolume = ht.state.subscribe("device/" + speakerId, record => {
         if (volumeBusy) return;
-        try { showVolume({ object: record?.value }); }
-        catch { volumeReady = false; $("volume-note").textContent = ht.t("dog.volumeUnavailable"); }
+        try { showVolume({ object: record?.value }); ht.live($("volume-value"), record?.observedAt); }
+        catch { volumeReady = false; ht.live($("volume-value"), undefined); $("volume-note").textContent = ht.t("dog.volumeUnavailable"); }
         volumeDisabled();
       }, "live");
     };

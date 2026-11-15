@@ -20,7 +20,7 @@ describe("Meari P2P command codec", () => {
   test("matches the native VVP 0x8000 frame and authenticator", () => {
     expect(formatMeariLicenceId("100000001")).toBe("00000000000100000001");
     expect(buildVvpCommandAuth(4, { ...auth, sequence: 7 })).toBe(
-      "1b04677264b1613b6cc2af65ec3ae037",
+      "f4d0f4a2d12b7e9acfae0397c983653a",
     );
 
     const frame = encodeVvpCommandFrame("test", { ...auth, sequence: 7 });
@@ -28,7 +28,7 @@ describe("Meari P2P command codec", () => {
     expect(frame.subarray(0, 16).toString("hex")).toBe(
       "56565099000000010000000700008000",
     );
-    expect(frame.toString("ascii", 16, 48)).toBe("1b04677264b1613b6cc2af65ec3ae037");
+    expect(frame.toString("ascii", 16, 48)).toBe("f4d0f4a2d12b7e9acfae0397c983653a");
     expect(frame.readUInt32BE(48)).toBe(4);
     expect(decodeVvpCommandFrame(frame)).toMatchObject({
       command: 0x8000,

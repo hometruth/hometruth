@@ -1,3 +1,4 @@
+import { eventForApi } from "../element-api/event-presentation";
 import type { ServiceEvent } from "../models/event-log";
 import { countDetectionLabels } from "../models/detection-labels";
 import type { RegisteredService } from "../site";
@@ -181,7 +182,7 @@ export const EVENT_LOG_SCRIPT = String.raw`
         && /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/.test(data.camera || "") && /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/.test(data.objectId || "")
         ? "/api/services/frigate/frames/" + encodeURIComponent(data.camera) + "/" + encodeURIComponent(data.objectId)
           + (Number.isFinite(data.frameTime) ? "?at=" + encodeURIComponent(data.frameTime) : "") : null;
-      const previewPath = photoPath || framePath;
+      const previewPath = photoPath || framePath ? ht.apiPath(photoPath || framePath) : null;
       if (previewPath) {
         const preview = el("div", "event-preview");
         const image = el("img", "event-detection-image");
@@ -249,7 +250,7 @@ export const EVENT_LOG_SCRIPT = String.raw`
       const facts = el("div", "event-facts");
       if (photoPath) {
         const link = el("a", "event-photo", ht.t("events.viewPhoto"));
-        link.href = photoPath;
+        link.href = ht.apiPath(photoPath);
         link.target = "_blank";
         link.rel = "noopener noreferrer";
         facts.append(link);
@@ -363,7 +364,7 @@ export const EVENT_LOG_SCRIPT = String.raw`
     // (and after a hidden spell); rows already shown are skipped by their key.
     const listen = (generation, suffix) => {
       if (document.hidden) return;
-      source = new EventSource(streamPath + suffix);
+      source = new EventSource(ht.apiPath(streamPath + suffix));
       source.addEventListener("open", () => { if (generation === loadGeneration) setConnected(true); });
       source.addEventListener("error", () => { if (generation === loadGeneration) setConnected(false); });
       source.addEventListener("service-event", (message) => {
@@ -613,13 +614,13 @@ export function renderEventList(ctx: PageContext, events: readonly ServiceEvent[
       ? `/api/cameras/${encodeURIComponent(event.subject!)}/photos/${data.photoId}` : undefined;
     const framePath = ["camera_object", "camera_classified"].includes(event.type) && data.source === "frigate" && [data.camera, data.objectId].every(value => typeof value === "string" && /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/.test(value))
       ? `/api/services/frigate/frames/${encodeURIComponent(String(data.camera))}/${encodeURIComponent(String(data.objectId))}${Number.isFinite(data.frameTime) ? `?at=${encodeURIComponent(String(data.frameTime))}` : ""}` : undefined;
-    const imagePath = photoPath ?? framePath ?? (view === "thumbnail" && typeof data.thumbnailUrl === "string" && /^https?:\/\//.test(data.thumbnailUrl) ? data.thumbnailUrl : undefined);
+    const imagePath = photoPath || framePath ? ctx.apiPath((photoPath ?? framePath)!) : (view === "thumbnail" && typeof data.thumbnailUrl === "string" && (/^https?:\/\//.test(data.thumbnailUrl) || data.thumbnailUrl.startsWith("/api/")) ? ctx.apiPath(data.thumbnailUrl) : undefined);
     const preview = imagePath ? `<div class="event-preview"><a class="event-frame-link" href="${escapeHtml(imagePath)}" target="_blank" rel="noopener noreferrer"><img class="event-detection-image" src="${escapeHtml(imagePath)}" alt="${escapeHtml(t(photoPath ? "events.photoAlt" : "events.frameAlt"))}" loading="lazy" decoding="async"></a></div>` : "";
     const changed = view === "properties" && Array.isArray(data.changed) ? `<div class="event-codes">${escapeHtml(data.changed.join(", "))}</div>` : "";
     const facts = fields.map(([key, value]) => `<span>${escapeHtml(key)} <b>${escapeHtml(String(value))}</b></span>`).join(" ");
     return `<li class="event" data-level="${escapeHtml(event.level)}" data-type="${escapeHtml(event.type)}"${event.subject ? ` data-subject="${escapeHtml(event.subject)}"` : ""}><div class="event-head">${event.level === "info" ? "" : `<span class="mark" data-availability="${event.level === "error" ? "offline" : "degraded"}" aria-hidden="true"></span>`}<span class="event-at">${escapeHtml(ctx.i18n.time(event.at))}</span><span class="event-type">${escapeHtml(labels.get(event.type) ?? event.type)}</span>${event.subject ? subject?.page ? `<a class="event-subject" href="${escapeHtml(subject.page)}">${escapeHtml(subject.name)}</a>` : `<span class="event-subject">${escapeHtml(subject?.name ?? event.subject)}</span>` : ""}</div><div class="event-body">${preview}<div>${escapeHtml(event.message)}${changed}${facts ? `<div class="event-facts">${facts}</div>` : ""}</div></div></li>`;
   }).join("");
-  const seed = { events, labelCounts: countDetectionLabels(events), nextCursor: events.length === 200 ? events.at(-1)?.at : undefined };
+  const seed = { events: events.map(event => eventForApi(event, ctx.apiPath)), labelCounts: countDetectionLabels(events), nextCursor: events.length === 200 ? events.at(-1)?.at : undefined };
   return `<ul class="events" id="events">${rows || `<li class="empty">${escapeHtml(ctx.i18n.t("services.noEvents"))}</li>`}</ul><script type="application/json" nonce="${escapeHtml(ctx.nonce)}" data-event-seed>${JSON.stringify(seed).replaceAll("<", "\\u003c")}</script>`;
 }
 

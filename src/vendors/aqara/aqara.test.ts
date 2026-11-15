@@ -9,6 +9,7 @@ import { parseAccessories, hapType, type HapAccessory, type HapSnapshot } from "
 import { isPairingData, validateAddress, readHomeKit } from "../../protocols/homekit/client";
 import { Site, summaryDetail } from "../../site";
 import { createApp } from "../../server/app";
+import { elementAddress } from "../../server/test-addresses";
 import { AqaraHubM2 } from "../../devices/hubs/aqara-hub-m2";
 import { AqaraPresenceSensorFP2 } from "../../devices/sensors/aqara-presence-sensor-fp2";
 import { AqaraDoorWindowSensor } from "../../devices/sensors/aqara-door-window-sensor";
@@ -187,7 +188,8 @@ describe("Aqara inventory and pages", () => {
       // provisioned is declared here instead.
       [{ from: "door", to: "hub", relation: "uses", capability: "hub" }],
     ));
-    const detail = await (await app.request("/api/devices/door")).json();
+    const at = (id: string) => elementAddress(app, "device", id);
+    const detail = await (await app.request(`/api/devices/${await at("door")}`)).json();
     expect(detail.object.capabilities.contactSensor.state.open).toBe(false);
     expect(summaryDetail(detail.object)).toBe("Closed · Battery 100%");
     expect(validators.homeTruthObject(detail.object)).toBe(true);
@@ -199,8 +201,8 @@ describe("Aqara inventory and pages", () => {
       if (id === "door") { expect(html).toContain("&lt;Office door&gt;"); expect(html).not.toContain('id="pair-code"'); expect(html).toContain('href="/hubs/hub"'); }
       if (id === "hub") expect(html).toContain('href="/sensors/office-door"');
     }
-    expect((await app.request("/api/aqara/door/pair", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pin: "111-22-333" }) })).status).toBe(404);
-    expect((await app.request("/api/aqara/presence/pair", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pin: "bad" }) })).status).toBe(400);
+    expect((await app.request(`/api/aqara/${await at("door")}/pair`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pin: "111-22-333" }) })).status).toBe(404);
+    expect((await app.request(`/api/aqara/${await at("presence")}/pair`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pin: "bad" }) })).status).toBe(400);
   });
   test("sync adds bridged contact sensors HomeTruth has no device for yet, and leaves configured ones alone", async () => {
     const hub = new AqaraHubM2({ id: "hub", name: "Hub" }, address, source(fixture()));
@@ -210,12 +212,13 @@ describe("Aqara inventory and pages", () => {
     const writer: DeviceConfigWriter = { async add(entry) { entries.push(entry); }, async addAll(all) { entries.push(...all); }, async rename() {} };
     const app = createApp(undefined, site, undefined, undefined, undefined, undefined, undefined, writer);
     const headers = { "content-type": "application/json" };
-    const response = await app.request("/api/aqara/hub/sync", { method: "POST", headers, body: "{}" });
+    const hubSync = `/api/aqara/${await elementAddress(app, "device", "hub")}/sync`;
+    const response = await app.request(hubSync, { method: "POST", headers, body: "{}" });
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ added: [{ id: "hub-old-contact", name: "Old contact", page: "/devices/hub-old-contact" }] });
     expect(entries).toEqual([{ id: "hub-old-contact", name: "Old contact", model: "aqara-door-window-sensor", config: { hub: "hub", serialNumber: "old-sensor" } }]);
-    expect((await app.request("/api/aqara/door/sync", { method: "POST", headers, body: "{}" })).status).toBe(404);
-    expect((await createApp(undefined, site).request("/api/aqara/hub/sync", { method: "POST", headers, body: "{}" })).status).toBe(409);
+    expect((await app.request(`/api/aqara/${await elementAddress(app, "device", "door")}/sync`, { method: "POST", headers, body: "{}" })).status).toBe(404);
+    expect((await createApp(undefined, site).request(hubSync, { method: "POST", headers, body: "{}" })).status).toBe(409);
   });
   test("schemas require observation times for known sensor values", () => {
     expect(validators.contactSensor({ id: "x", state: { availability: "online", open: false }, actions: {} })).toBe(false);

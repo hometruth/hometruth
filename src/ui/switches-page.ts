@@ -99,7 +99,7 @@ export function renderSwitchesPage({ ctx, switches, buttons, canCreate, groups =
     nav: "switches",
     css: SWITCHES_CSS,
     body: `<h1>${escapeHtml(t("switches.title"))}</h1>
-      ${entries.length ? `<ul class="rows" aria-label="${escapeHtml(t("switches.title"))}">${rows}</ul>` : `<p class="empty">${escapeHtml(t("switches.empty"))}</p>`}
+      ${entries.length ? `<ul class="rows switch-tiles" aria-label="${escapeHtml(t("switches.title"))}">${rows}</ul>` : `<p class="empty">${escapeHtml(t("switches.empty"))}</p>`}
       <h2>${escapeHtml(t("switches.builder.title"))}</h2>
       ${builder}`,
     script: SWITCHES_SCRIPT,

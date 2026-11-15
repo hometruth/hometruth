@@ -16,7 +16,7 @@
  * the schema and instance sides — so nothing here can itself be tagged.
  */
 import { elementKey } from "../tags/identity";
-import { tagLabel, tagPage, UNNAMED, type Tag, type TagName } from "../tags/model";
+import { ROOM, tagLabel, tagPage, UNNAMED, type Tag, type TagName } from "../tags/model";
 import { iconFor } from "./icons";
 import type { GraphEdge, GraphNode, NodeId } from "./types";
 
@@ -57,7 +57,7 @@ export function buildTagGraph(snapshot: TagSnapshot): { nodes: GraphNode[]; edge
       kind: "tag-name",
       name: declared?.label ?? (name || UNNAMED_LABEL),
       context: declared?.cardinality === "single" ? "one per element" : "",
-      page: name ? `/tags/${encodeURIComponent(name)}` : "/tags",
+      page: name === ROOM ? "/rooms" : name ? `/tags/${encodeURIComponent(name)}` : "/tags",
       icon: iconFor({ kind: "tag-name" }),
       ids: [name || UNNAMED],
     });

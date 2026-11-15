@@ -14,7 +14,7 @@
  * request that checks twenty devices resolves once.
  */
 import type { AutomaticGroupCriteria } from "../schemas";
-import { permits, type Permission, type TokenSubject } from "./model";
+import { validAdministrativeScope, permits, type Permission, type TokenSubject } from "./model";
 import type { TokenRecord } from "./store";
 
 /** The slice of `Site` a principal needs; narrow so tests can hand over a literal. */
@@ -44,7 +44,7 @@ export function subjectDevices(site: ScopeSite, subject: TokenSubject): "all" | 
  * methods, so there is exactly one place where "may I" is answered.
  */
 /** Where a principal's authority came from: a token it presented, or the network it is on. */
-export type PrincipalOrigin = "token" | "local-network";
+export type PrincipalOrigin = "token" | "session" | "local-network";
 
 export class Principal {
   #devices: "all" | ReadonlySet<string> | undefined;
@@ -57,7 +57,7 @@ export class Principal {
 
   /** Holds the verb, without reference to any particular device. */
   allows(permission: Permission): boolean {
-    return permits(this.token.permissions, permission);
+    return validAdministrativeScope(this.token) && permits(this.token.permissions, permission);
   }
 
   /** Holds the verb, and this device is in reach. */

@@ -137,12 +137,15 @@ export function renderTokensPage({ ctx, tokens, devices, groups, rooms = [], sch
         const criteriaField = form.querySelector("[data-subject-criteria]");
         const chosenSubject = () => form.querySelector("input[name=subject]:checked").value;
         const sync = () => {
+          const admin = form.querySelector("input[name=permissions]:checked").value === "admin";
+          if (admin) form.querySelector('input[name=subject][value=all]').checked = true;
+          for (const input of form.querySelectorAll('input[name=subject]')) input.disabled = admin && input.value !== "all";
           const subject = chosenSubject();
           groupField.hidden = subject !== "group";
           deviceField.hidden = subject !== "device";
           criteriaField.hidden = subject !== "criteria";
         };
-        form.addEventListener("change", (event) => { if (event.target.name === "subject") sync(); });
+        form.addEventListener("change", (event) => { if (event.target.name === "subject" || event.target.name === "permissions") sync(); });
         sync();
 
         const subjectValue = () => {

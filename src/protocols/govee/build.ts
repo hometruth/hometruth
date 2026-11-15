@@ -6,14 +6,18 @@ const directory = resolve(".hometruth/bluetooth");
 const binary = resolve(directory, "govee-scan");
 let building: Promise<string> | undefined;
 
-/** Build the small native receiver once. No package downloads or Bluetooth access here. */
-export function ensureGoveeScanner(): Promise<string> {
+/**
+ * The receiver command: a small native CoreBluetooth binary on macOS (built once;
+ * no package downloads or Bluetooth access here), a BlueZ D-Bus script on Linux.
+ */
+export async function ensureGoveeScanner(): Promise<string[]> {
+  if (process.platform === "linux") return ["python3", resolve(import.meta.dir, "scan-bluez.py")];
+  if (process.platform !== "darwin") throw new Error("Govee Bluetooth needs a macOS or Linux HomeTruth server");
   building ??= build().finally(() => { building = undefined; });
-  return building;
+  return [await building];
 }
 
 async function build(): Promise<string> {
-  if (process.platform !== "darwin") throw new Error("Govee Bluetooth currently requires a macOS HomeTruth server");
   const source = resolve(import.meta.dir, "scan.swift");
   const plist = resolve(import.meta.dir, "Info.plist");
   const hash = createHash("sha256").update(await Bun.file(source).text()).update(await Bun.file(plist).text()).update(process.arch).digest("hex");

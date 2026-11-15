@@ -86,6 +86,7 @@ interface Watch {
   /** When the last read settled, ms since the epoch; the cadence counts from here. */
   completedAt: number | undefined;
   failures: number;
+  readonly dependencies: Map<NodeId, { tier: Tier; release: () => void }>;
 }
 
 interface Job {
@@ -159,7 +160,8 @@ export class Observer {
     this.graph.clear();
     this.#binding = binding;
     this.attach();
-    for (const watch of this.#watches.values()) {
+    for (const watch of [...this.#watches.values()]) {
+      this.#syncDependencies(watch);
       watch.failures = 0;
       watch.completedAt = undefined;
       this.#arm(watch, this.#random() * FIRST_READ_STAGGER_MS);
@@ -171,12 +173,13 @@ export class Observer {
     let watch = this.#watches.get(node);
     const first = !watch;
     if (!watch) {
-      watch = { node, tiers: new Map(), timer: undefined, due: undefined, completedAt: undefined, failures: 0 };
+      watch = { node, tiers: new Map(), timer: undefined, due: undefined, completedAt: undefined, failures: 0, dependencies: new Map() };
       this.#watches.set(node, watch);
     }
     const held = watch;
     held.tiers.set(tier, (held.tiers.get(tier) ?? 0) + 1);
     if (this.#binding) {
+      this.#syncDependencies(held);
       if (first) this.#arm(held, this.#random() * FIRST_READ_STAGGER_MS);
       else this.#rearm(held);
     }
@@ -190,6 +193,10 @@ export class Observer {
       if (held.tiers.size === 0 && this.#watches.get(node) === held) {
         this.#timers.clear(held.timer);
         this.#watches.delete(node);
+        for (const dependency of held.dependencies.values()) dependency.release();
+        held.dependencies.clear();
+      } else if (this.#watches.get(node) === held) {
+        this.#syncDependencies(held);
       }
     };
   }
@@ -223,6 +230,7 @@ export class Observer {
 
   /** A route already described the device: record it as a successful observation and count the cadence from now. */
   publish(deviceId: string, object: HomeTruthObject): void {
+    this.#binding?.site.get(deviceId)?.reportAvailability(object.status ?? "unknown");
     this.#publishNode(deviceNode(deviceId), { value: object });
   }
 
@@ -316,11 +324,16 @@ export class Observer {
     const site = this.#binding?.site;
     if (!site) return;
     for (const device of site.devices) {
+      if (device.availabilitySources.length) this.#detachButtons.push(device.subscribeAvailability(() => {
+        const node = deviceNode(device.id);
+        if (this.isRetained(node) || this.graph.read(node)) void this.refresh(node);
+      }));
       const button = device.capabilities.button;
       if (hasSubscribe(button)) this.#detachButtons.push(button.subscribe(() => this.invalidate(device.id)));
       const watch = device.watch?.bind(device);
       if (watch) this.#detachButtons.push(watch(() => this.reportChange(device.id)));
     }
+    for (const watch of [...this.#watches.values()]) this.#syncDependencies(watch);
   }
 
   stop(): void {
@@ -381,6 +394,27 @@ export class Observer {
     return members.flatMap((id) => site.get(id)?.model.capabilities ?? []);
   }
 
+  #sources(node: NodeId): readonly Device[] {
+    const parsed = parseNode(node);
+    return parsed?.kind === "device" ? this.#binding?.site.get(parsed.id)?.availabilitySources ?? [] : [];
+  }
+
+  /** Watching a logical control keeps its physical sources observed at their own polling floors. */
+  #syncDependencies(watch: Watch): void {
+    if (!this.#binding) return;
+    const tier: Tier = watch.tiers.has("live") ? "live" : "glance";
+    const nodes = new Set(this.#sources(watch.node).map(source => deviceNode(source.id)));
+    for (const [node, dependency] of watch.dependencies) {
+      if (!nodes.has(node) || dependency.tier !== tier) {
+        watch.dependencies.delete(node);
+        dependency.release();
+      }
+    }
+    for (const node of nodes) if (!watch.dependencies.has(node)) {
+      watch.dependencies.set(node, { tier, release: this.retain(node, tier) });
+    }
+  }
+
   #interval(watch: Watch): number {
     const floor = this.#kinds(watch.node).reduce((max, kind) => Math.max(max, FLOORS_MS[kind]), 0);
     const tier = Math.min(...[...watch.tiers.keys()].map((name) => TIER_MS[name]));
@@ -397,6 +431,10 @@ export class Observer {
 
   #arm(watch: Watch, delay: number): void {
     this.#timers.clear(watch.timer);
+    watch.timer = undefined;
+    watch.due = undefined;
+    // Derived availability changes are pushed by the source; it has no independent polling cycle.
+    if (watch.completedAt !== undefined && this.#sources(watch.node).length) return;
     watch.due = this.#nowMs() + delay;
     watch.timer = this.#timers.set(() => {
       watch.timer = undefined;
@@ -474,6 +512,8 @@ export class Observer {
       : await this.#readDevice(binding, parsed.id);
     // Dropped: the site swapped the device, the hub rebound, or a route published newer truth while this read was out.
     if (result === undefined || epoch !== this.#epoch || (this.#generation.get(node) ?? 0) !== generation) return this.graph.read(node) ?? this.#empty(node);
+    if (parsed.kind === "device") binding.site.get(parsed.id)?.reportAvailability("value" in result
+      ? (result.value as HomeTruthObject).status ?? "unknown" : "offline");
     const watch = this.#watches.get(node);
     if (watch) watch.failures = "fault" in result && result.fault.code !== "unconfigured" ? watch.failures + 1 : 0;
     return this.graph.publish(node, result);

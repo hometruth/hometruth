@@ -28,7 +28,7 @@ export function renderKindleBoard({ ctx, config, snapshot, frame, room = "", pag
   const parsed = Number(page);
   const current = Math.min(pages, Math.max(1, Number.isSafeInteger(parsed) ? parsed : 1));
   const href = (index: number) => e(`/kindle?room=${encodeURIComponent(selected)}&page=${index}${preview ? "&preview=1" : ""}`);
-  const rendered = rows.slice((current - 1) * config.rowsPerPage, current * config.rowsPerPage).map((row) => `<tr data-device-id="${e(row.deviceId)}"><td><strong>${e(row.label)}</strong><small>${e(row.room || row.model)} · ${e(t(`status.${row.availability}`))}</small></td><td>${row.missing ? e(t("kindle.missing")) : row.primitives.map((item) => renderPrimitive(row, item)).join("") || e(t(`status.${row.availability}`))}</td></tr>`).join("");
+  const rendered = rows.slice((current - 1) * config.rowsPerPage, current * config.rowsPerPage).map((row) => `<tr data-device-id="${e(row.deviceId)}"><td><strong>${e(row.label)}</strong><small>${e(row.room || row.model)} · ${e(t(`status.${row.availability}`))}</small></td><td>${row.missing ? e(t("kindle.missing")) : row.primitives.map((item) => renderPrimitive(ctx, row, item)).join("") || e(t(`status.${row.availability}`))}</td></tr>`).join("");
   return `<div id="kindle-settings" data-refresh="${config.refreshSeconds}" data-font="${config.fontSize}" data-layout="list">
     <div class="masthead"><h1>${e(config.title)}</h1>${preview ? `<p>${e(t("kindle.previewReadonly"))}</p>` : ""}</div>
     <p class="updated">${e(t("kindle.updated", { time: dateTime(snapshot.generatedAt) }))}</p>

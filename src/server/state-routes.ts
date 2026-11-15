@@ -13,6 +13,7 @@ import { parseNode, STREAM_LIMITS, type NodeId, type StreamHello } from "../stat
 import type { StateHub } from "../state/hub";
 import { encodeFrame, KEEPALIVE_COMMENT, parseStreamRequest, retryLine } from "../state/stream";
 import { errorJson, type AppEnvironment } from "./http";
+import { addressesFor } from "../element-api/addresses";
 
 export interface StateRouteOptions {
   /** The keepalive clock; injected by tests. */
@@ -32,8 +33,8 @@ export function stateRoutes(hub: StateHub, options: StateRouteOptions = {}): Hon
 
   app.get("/api/state", (context) => {
     const principal = context.get("principal");
-    const requested = context.req.queries("node");
-    if (requested?.some(node => !parseNode(node))) return errorJson(context, 400, "invalid_request", "Invalid state node");
+    const requested = context.req.queries("node")?.map(address => addressesFor(hub).stateNode(address));
+    if (requested?.some(node => !node)) return errorJson(context, 400, "invalid_request", "Unknown state element name");
     const records = hub.snapshot(requested as NodeId[] | undefined).filter(record => {
       if (!principal) return true;
       const parsed = parseNode(record.node)!;
@@ -49,7 +50,12 @@ export function stateRoutes(hub: StateHub, options: StateRouteOptions = {}): Hon
   });
 
   app.get("/api/state/stream", (context) => {
-    const request = parseStreamRequest(new URL(context.req.url), hub.limits);
+    const url = new URL(context.req.url);
+    const nodesByName = url.searchParams.getAll("node").map(address => addressesFor(hub).stateNode(address));
+    if (nodesByName.some(node => !node)) return errorJson(context, 400, "invalid_request", "Unknown state element name");
+    url.searchParams.delete("node");
+    for (const node of nodesByName) url.searchParams.append("node", node!);
+    const request = parseStreamRequest(url, hub.limits);
     if (!request.ok) return errorJson(context, 400, "invalid_request", request.message);
     const { tier } = request;
     /**

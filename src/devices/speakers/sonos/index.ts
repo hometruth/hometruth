@@ -1,3 +1,4 @@
+import { DINNER_BELL } from "../../../workflows/sounds";
 /**
  * A Sonos speaker as a `Speaker` capability, backed by its local UPnP/SOAP
  * control API (`../../../protocols/sonos/soap-client.ts`) — no Sonos account
@@ -28,7 +29,7 @@ export interface SonosSpeakerOptions {
   fetch?: SonosFetch;
   /** Absolute `http://<lan-ip>:<port>` this server is reachable at from this speaker; absent when no `sonosMedia` service is configured. */
   localMediaBaseUrl?: () => string;
-  /** Overrides the default macOS-`say`-based TTS for `say()`; narrow enough to fake in tests. */
+  /** Overrides the default local TTS (macOS `say` or Piper) for `say()`; narrow enough to fake in tests. */
   synthesizeSayClip?: SaySynthesizer;
 }
 
@@ -119,6 +120,13 @@ export class SonosSpeaker extends Speaker {
 
   async playUri(uri: string, options?: { title?: string }): Promise<void> {
     await this.soap.setAvTransportUri(uri, options?.title ? didlLiteMetadata(options.title) : "");
+    await this.soap.play();
+  }
+
+  override supportsSounds(): boolean { return Boolean(this.localMediaBaseUrl); }
+  override async playSound(sound: "dinnerBell"): Promise<void> {
+    if (sound !== DINNER_BELL.id || !this.localMediaBaseUrl) throw new SpeakerError("Local sound is unavailable", "protocol");
+    await this.soap.setAvTransportUri(`${this.localMediaBaseUrl()}${DINNER_BELL.path}`, didlLiteMetadata("Dinner bell", { durationSeconds: DINNER_BELL.durationMs / 1000 }));
     await this.soap.play();
   }
 

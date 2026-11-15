@@ -43,7 +43,7 @@ const CAMERA_SCRIPT = String.raw`
     const showImage = (source, alt) => {
       if (!(image instanceof HTMLImageElement)) return;
       image.alt = alt;
-      image.src = source;
+      image.src = ht.apiPath(source);
       image.hidden = false;
       if (placeholder instanceof HTMLElement) placeholder.hidden = true;
     };
@@ -118,7 +118,7 @@ const CAMERA_SCRIPT = String.raw`
         const label = document.createElement("span");
         label.textContent = photoLabel(photo) + (photo.uploadedAt != null ? " · " + ht.t("camera.photoUploaded", { time: new Date(photo.uploadedAt).toLocaleString() }) : "");
         const download = document.createElement("a");
-        download.href = photoUrl(photo);
+        download.href = ht.apiPath(photoUrl(photo));
         download.download = photo.id + ".jpg";
         download.textContent = ht.t("camera.photoDownload");
         caption.append(label, document.createTextNode(" · "), download);
@@ -148,7 +148,7 @@ const CAMERA_SCRIPT = String.raw`
         }
         const photo = playPage[playIndex];
         const preload = new Image();
-        preload.src = photoUrl(photo);
+        preload.src = ht.apiPath(photoUrl(photo));
         await preload.decode();
         if (!playing || generation !== playGeneration) return;
         selectPhoto(photo);
@@ -186,7 +186,7 @@ const CAMERA_SCRIPT = String.raw`
           button.dataset.photoId = photo.id;
           button.setAttribute("aria-pressed", String(selected === photo.id));
           const thumbnail = document.createElement("img");
-          thumbnail.src = photoUrl(photo);
+          thumbnail.src = ht.apiPath(photoUrl(photo));
           thumbnail.alt = "";
           thumbnail.loading = "lazy";
           const label = document.createElement("span");

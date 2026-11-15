@@ -30,7 +30,7 @@ export function renderCanvas(canvas: CanvasLayout, snapshot: KindleSnapshot, ctx
     if (widget.kind === "device") {
       const row = rows.get(widget.id);
       body = `${widget.showLabel ? `<h2 class="widget-title">${e(row?.label ?? (widget.label || widget.deviceId))}</h2>` : ""}`;
-      body += !row || row.missing ? `<p>${e(ctx.i18n.t("kindle.missing"))}</p>` : row.primitives.map((primitive) => renderPrimitive(row, primitive)).join("") || `<p>${e(ctx.i18n.t(`status.${row.availability}`))}</p>`;
+      body += !row || row.missing ? `<p>${e(ctx.i18n.t("kindle.missing"))}</p>` : row.primitives.map((primitive) => renderPrimitive(ctx, row, primitive)).join("") || `<p>${e(ctx.i18n.t(`status.${row.availability}`))}</p>`;
     }
     return `<div id="canvas-widget-${widget.id}" class="canvas-widget" data-widget="${widget.id}" data-kind="${widget.kind}" data-x="${widget.x}" data-y="${widget.y}" data-width="${widget.width}" data-height="${widget.height}" data-font="${widget.fontSize}" data-align="${widget.align}" data-border="${widget.border ? 2 : 0}" data-layer="${index + 1}">${body}</div>`;
   }).join("");

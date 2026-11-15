@@ -21,11 +21,12 @@
 import { PERMISSIONS, type Permission } from "../auth/model";
 import { postControlNames } from "../control-routes";
 import { isPublicRoute, policyFor, type PolicyTarget } from "../auth/policy";
-import { SESSION_COOKIE } from "../auth/guard";
+import { SESSION_COOKIE } from "../auth/browser-session";
 import { CAPABILITY_KINDS, type CapabilityKind } from "../models/capability";
 import { schemaCatalogEntries } from "../schema-catalog";
 import { elementKey } from "../tags/identity";
 import { OPERATIONS, type BodySchema, type InlineSchema, type Operation } from "./operations";
+import { publicApiPath, type ApiAddressMappings } from "../element-api/address-paths";
 
 /** A JSON value, which is all an OpenAPI document ever is. */
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
@@ -65,6 +66,7 @@ export interface DocumentOptions {
   /** Whether a caller on a private address is admitted without a token. */
   readonly trustsLocalNetwork?: boolean;
   readonly generatedAt?: string;
+  readonly addresses?: ApiAddressMappings;
 }
 
 export const EMPTY_SITE: DescribedSite = { devices: [], groups: [], services: [] };
@@ -157,8 +159,9 @@ export function rewriteSchema(value: unknown, top: boolean): Json {
   for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
     if (top && (key === "$schema" || key === "$id")) continue;
     if (key === "$ref" && typeof nested === "string") {
-      const name = COMPONENT_NAMES.get(nested);
-      result.$ref = name ? `#/components/schemas/${name}` : nested;
+      const [documentId, fragment = ""] = nested.split("#", 2);
+      const name = COMPONENT_NAMES.get(documentId!);
+      result.$ref = name ? `#/components/schemas/${name}${fragment}` : nested;
       continue;
     }
     result[key] = rewriteSchema(nested, false);
@@ -233,7 +236,8 @@ function choices(site: DescribedSite, name: string, collection: string | undefin
     .filter(device => !kinds || kinds.some(kind => device.capabilities.includes(kind)))
     .map(device => ({ value: device.id, label: device.name }));
 
-  if (name === "camera") return devices(["camera"]);
+  // Frigate's camera selector belongs to Frigate, not the HomeTruth device inventory.
+  if (name === "camera") return [];
   if (name === "kind") return CAPABILITY_KINDS.map(kind => ({ value: kind, label: kind }));
   if (name === "control" || name === "controlId") {
     const controls = [...new Set(site.devices.flatMap(device => device.controls))].sort();
@@ -255,13 +259,18 @@ function choices(site: DescribedSite, name: string, collection: string | undefin
   return target?.kind === "device" ? devices(collection ? COLLECTION_CAPABILITIES[collection] : undefined) : [];
 }
 
-function pathParameters(segments: readonly string[], site: DescribedSite, target: PolicyTarget | undefined): Json[] {
+function pathParameters(segments: readonly string[], site: DescribedSite, target: PolicyTarget | undefined, addresses?: ApiAddressMappings): Json[] {
   const parameters: Json[] = [];
   for (const [index, segment] of segments.entries()) {
     if (!segment.startsWith("{")) continue;
     const name = segment.slice(1, -1);
     const collection = [...segments.slice(0, index)].reverse().find(part => !part.startsWith("{"));
-    const options = choices(site, name, collection, target);
+    const options = choices(site, name, collection, target).map(option => {
+      if (!addresses) return option;
+      const path = "/" + segments.map((part, partIndex) => partIndex === index ? encodeURIComponent(option.value) : part).join("/");
+      const value = decodeURIComponent(publicApiPath(path, addresses).split("/")[index + 1]!);
+      return { ...option, value };
+    });
     const schema: Record<string, Json> = { type: "string" };
     if (options.length) schema.enum = options.map(option => option.value);
     // Labels only when they say something the value does not: a control is its
@@ -387,7 +396,7 @@ export function buildOpenApiDocument(options: DocumentOptions): OpenApiDocument 
       operationId: [route.method.toLowerCase(), ...segments.map(segment => (segment.startsWith("{") ? `by-${segment.slice(1, -1)}` : segment))].join("-"),
       summary: summaryFor(path, segments),
       tags: [humanize(group)],
-      parameters: [...pathParameters(segments, site, policy?.target), ...queryParameters(operation.query)],
+      parameters: [...pathParameters(segments, site, policy?.target, options.addresses), ...queryParameters(operation.query)],
       responses: responses(operation, route.method, Boolean(operation.request), isPublic, policy?.target),
     };
 
@@ -438,7 +447,7 @@ export function buildOpenApiDocument(options: DocumentOptions): OpenApiDocument 
           type: "apiKey",
           in: "cookie",
           name: SESSION_COOKIE,
-          description: "The same token, in the cookie a browser receives from POST /api/auth/sign-in.",
+          description: "An independent, revocable browser session in a Secure, HttpOnly cookie.",
         },
       },
     },

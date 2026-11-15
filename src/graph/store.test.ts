@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { GraphStore } from "./store";
+import { Database } from "bun:sqlite";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { emoji } from "./icons";
 import type { GraphEdge, GraphNode } from "./types";
 
@@ -10,6 +14,23 @@ const node = (id: string, name = id, extra: Partial<GraphNode> = {}): GraphNode 
 const edge = (from: string, to: string): GraphEdge => ({ from, to, relation: "uses", origin: "resolution" });
 
 describe("graph store", () => {
+  test("parallel configured roles persist without overwriting one another", () => {
+    const directory = mkdtempSync(join(tmpdir(), "hometruth-graph-roles-"));
+    const path = join(directory, "graph.sqlite");
+    const store = new GraphStore(path);
+    const read = new Database(path, { readonly: true });
+    try {
+      store.reconcile([node("switch"), node("button")], [
+        { ...edge("switch", "button"), label: "on", via: "button" },
+        { ...edge("switch", "button"), label: "off", via: "button" },
+      ]);
+      const rows = read.query("SELECT label, via FROM edges ORDER BY label").all();
+      expect(rows).toEqual([{ label: "off", via: "button" }, { label: "on", via: "button" }]);
+    } finally {
+      read.close(); store.close(); rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   test("a node keeps its identity across rebuilds, even when it is renamed", () => {
     const store = new GraphStore();
     const first = store.reconcile([node("relay", "Porch relay")], []);

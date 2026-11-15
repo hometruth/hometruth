@@ -71,6 +71,17 @@ export interface InternetBlockAdapter {
   set(target: InternetBlockTarget, action: DnsAction): Promise<string>;
 }
 
+export interface InternetGroupTarget {
+  readonly id: string;
+  readonly macs: readonly string[];
+}
+
+/** One router-backed pause policy. On permits access; off pauses every configured identity. */
+export interface InternetGroupAdapter {
+  describe(target: InternetGroupTarget): Promise<"on" | "off">;
+  setAccess(target: InternetGroupTarget, allowed: boolean): Promise<void>;
+}
+
 export interface PacketCaptureSession {
   /** Where the capture runs, e.g. "U7 Pro XG (10.77.0.131) wifi0ap0.3". */
   readonly where: string;
@@ -110,6 +121,8 @@ export interface NetworkAdapter {
   readonly wifi?: WifiKickAdapter;
   /** Absent when this network cannot block a single device from the internet. */
   readonly internet?: InternetBlockAdapter;
+  /** Independently owned, atomic internet pause policies for groups of client identities. */
+  readonly internetGroups?: InternetGroupAdapter;
   /** Absent when this network cannot capture a device's packets for HomeTruth. */
   readonly capture?: PacketCaptureAdapter;
 }

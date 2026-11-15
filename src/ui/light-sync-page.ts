@@ -75,7 +75,7 @@ const LIGHT_SYNC_SCRIPT = String.raw`
     const loadSnapshot = () => {
       ht.say(feedback, ht.t("lightSync.loadingSnapshot"));
       setButtonsEnabled(false);
-      if (image instanceof HTMLImageElement) image.src = url(api.snapshot) + "?t=" + Date.now();
+      if (image instanceof HTMLImageElement) image.src = ht.apiPath(url(api.snapshot) + "?t=" + Date.now());
     };
 
     const loadRegion = async () => {

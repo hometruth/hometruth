@@ -3,6 +3,7 @@ import type { StateHub } from "../state/hub";
 import type { Graph } from "../graph/graph";
 import { listElements, type Element } from "../tags/elements";
 import { tagPage, type Tag } from "../tags/model";
+import { addressesFor } from "../element-api/addresses";
 
 export type TaggedElement = Element & { tagIds: string[] };
 export interface TagPageData { tags: (Tag & { page: string })[]; elements: TaggedElement[] }
@@ -18,7 +19,8 @@ export function pageCatalog(hub: StateHub): Catalog {
   const existing = catalogs.get(hub);
   if (existing?.topology === topology && existing.revision === store.revision) return existing;
   const assignments = store.assignments();
-  const elements = listElements(topology).map(element => ({ ...element, tagIds: assignments.get(element.key) ?? [] }));
+  const addresses = addressesFor(hub);
+  const elements = listElements(topology).map(element => ({ ...element, page: `/elements/${encodeURIComponent(addresses.address(element.key)!)}`, tagIds: assignments.get(element.key) ?? [] }));
   const byPage = new Map<string, TaggedElement[]>();
   for (const element of elements) if (element.sourcePage) {
     const list = byPage.get(element.sourcePage);

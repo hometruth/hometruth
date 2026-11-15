@@ -1,3 +1,9 @@
+import { WRIGHT_THEME_CSS } from "./themes/wright";
+import type { InvestigationSummary } from "../health/investigation";
+import { HEALTH_NAVIGATION_SCRIPT } from "./health-navigation";
+import { elementKey } from "../tags/identity";
+import { publicApiPath, type ApiAddressMappings } from "../element-api/address-paths";
+import { BRIDGE_MEMBERSHIP_SCRIPT } from "./bridges-page";
 import { TAG_CSS, TAG_EDITOR_SCRIPT } from "./tag-editor";
 import { runtimeUpdateScript } from "./runtime-update";
 import { renderStateSnapshot } from "./state-snapshot";
@@ -48,12 +54,17 @@ export interface PageContext {
   readonly state: PageState;
   /** The worker generation, used as the cache key in browser module URLs. */
   readonly assetVersion: string;
+  /** Current friendly selectors for API paths; internal graph identities stay stable. */
+  readonly apiAddresses?: ApiAddressMappings;
+  readonly apiPath: (path: string) => string;
   readonly rooms?: readonly string[];
+  readonly healthInvestigations?: readonly InvestigationSummary[];
+  readonly bridgeEditor?: (key: string) => string;
   readonly tagEditor?: (key?: string) => string;
-  readonly elementApi?: () => { body: string; tabs: string; css: string; script: string } | undefined;
+  readonly elementApi?: () => { body: string; tabs: string; css: string; script: string; logHref?: string } | undefined;
 }
 
-export type NavItem = "health" | "devices" | "switches" | "groups" | "buttons" | "automations" | "events" | "services" | "network" | "schemas" | "api" | "kindle" | "tags" | "tokens";
+export type NavItem = "overview" | "graph" | "bridges" | "health" | "devices" | "switches" | "groups" | "buttons" | "automations" | "events" | "services" | "network" | "schemas" | "api" | "kindle" | "tags" | "rooms" | "tokens" | "security";
 
 export interface PageOptions {
   readonly ctx: PageContext;
@@ -64,6 +75,8 @@ export interface PageOptions {
   readonly body: string;
   readonly css?: string;
   readonly script?: string;
+  /** Browser modules relative to the versioned UI module root. */
+  readonly modules?: readonly string[];
   /** Message prefixes the page's script needs (`ht.t("…")`). */
   readonly messages?: readonly string[];
   /** Attributes on `<main>`, already escaped. */
@@ -71,6 +84,8 @@ export interface PageOptions {
   readonly wide?: boolean;
   /** A page reached before sign-in: no navigation, live state connection, or runtime notices. */
   readonly bare?: boolean;
+  /** Visual control surface without site chrome or inline editor panels. */
+  readonly immersive?: boolean;
   /** The graph nodes the page's `ht-*` elements are bound to; their cached records are embedded as `#ht-state`. */
   readonly nodes?: readonly NodeId[];
 }
@@ -80,6 +95,10 @@ export const CLIENT_RUNTIME = String.raw`
   window.ht = (() => {
     const node = document.getElementById("ht-messages");
     const messages = node ? JSON.parse(node.textContent || "{}") : {};
+    const addressNode = document.getElementById("ht-api-addresses");
+    const addresses = Object.assign({ devices: {}, groups: {}, services: {}, elements: {}, tags: {}, stateNodes: {} }, addressNode ? JSON.parse(addressNode.textContent || "{}") : {});
+    const formatApiPath = ${publicApiPath.toString()};
+    const apiPath = (path) => formatApiPath(path, addresses);
     const locale = document.documentElement.lang || "en";
     const t = (key, params) => formatMessage(messages[key] === undefined ? key : messages[key], params, locale);
     const time = (value) => new Intl.DateTimeFormat(locale, { timeStyle: "medium" }).format(new Date(value));
@@ -100,11 +119,17 @@ export const CLIENT_RUNTIME = String.raw`
     const availability = (value) => t("status." + (value === "online" || value === "offline" || value === "degraded" ? value : "unknown"));
     const errorOf = (payload, fallback) => payload && payload.error && payload.error.message ? payload.error.message : fallback;
     const request = async (url, init) => {
-      const response = await fetch(url, Object.assign({ cache: "no-store", credentials: "same-origin" }, init || {}, {
+      const response = await fetch(apiPath(url), Object.assign({ cache: "no-store", credentials: "same-origin" }, init || {}, {
         headers: Object.assign({ accept: "application/json" }, init && init.body ? { "content-type": "application/json" } : {}, init && init.headers ? init.headers : {}),
       }));
       const payload = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(errorOf(payload, t("feedback.requestFailed")));
+      if (!response.ok) {
+        if (response.headers.get("X-HomeTruth-Investigation")) document.dispatchEvent(new Event("health-action-failed"));
+        if (payload?.error?.code === "reauthentication_required") {
+          window.location.assign("/sign-in?reauth=1&next=" + encodeURIComponent(window.location.pathname + window.location.search));
+        }
+        throw new Error(errorOf(payload, t("feedback.requestFailed")));
+      }
       return payload;
     };
     /*
@@ -125,6 +150,28 @@ export const CLIENT_RUNTIME = String.raw`
       element.textContent = message || "";
       if (tone) element.dataset.tone = tone; else delete element.dataset.tone;
     };
+    const menuToggle = document.querySelector(".site-menu-toggle");
+    const sidebar = document.getElementById("site-sidebar");
+    const closeMenu = () => {
+      document.body.removeAttribute("data-sidebar-open");
+      menuToggle?.setAttribute("aria-expanded", "false");
+    };
+    menuToggle?.addEventListener("click", () => {
+      const open = document.body.toggleAttribute("data-sidebar-open");
+      menuToggle.setAttribute("aria-expanded", String(open));
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && document.body.hasAttribute("data-sidebar-open")) {
+        closeMenu();
+        menuToggle?.focus();
+      }
+    });
+    document.addEventListener("click", (event) => {
+      if (event.target instanceof Node && !sidebar?.contains(event.target) && !menuToggle?.contains(event.target)) closeMenu();
+    });
+    document.addEventListener("focusin", (event) => {
+      if (event.target instanceof Node && !sidebar?.contains(event.target) && !menuToggle?.contains(event.target)) closeMenu();
+    });
     const prefs = document.querySelector("form[data-preferences]");
     if (prefs instanceof HTMLFormElement) {
       const submit = prefs.querySelector("button[type=submit]");
@@ -185,7 +232,7 @@ export const CLIENT_RUNTIME = String.raw`
     document.addEventListener("pointerdown", hideTip);
     document.addEventListener("keydown", (event) => { if (event.key === "Escape") hideTip(); });
     window.addEventListener("scroll", hideTip, { passive: true, capture: true });
-    return { t, locale, time, dateTime, relativeTime, number, availability, request, say, errorOf, live };
+    return { t, locale, time, dateTime, relativeTime, number, availability, apiPath, request, say, errorOf, live };
   })();
 `;
 
@@ -247,13 +294,30 @@ const COMPONENTS_CSS = String.raw`
   main[data-wide] { width: min(var(--page-wide), calc(100% - var(--s6))); }
   @media (max-width: 40rem) { main, main[data-wide] { width: calc(100% - var(--s4) * 2); } }
 
-  .site-head { width: min(var(--page-wide), calc(100% - var(--s6))); margin-inline: auto; display: flex; align-items: baseline; justify-content: space-between; gap: var(--s4); flex-wrap: wrap; padding-block: var(--s4) var(--s3); border-block-end: var(--rule-w) solid var(--rule); }
-  @media (max-width: 40rem) { .site-head { width: calc(100% - var(--s4) * 2); } }
+  body.site-layout { padding-inline-start: 15rem; }
+  .site-sidebar { position: fixed; inset-block: 0; inset-inline-start: 0; width: 15rem; overflow-y: auto; padding: var(--s4); background: var(--bg); border-inline-end: var(--rule-w) solid var(--rule); z-index: 40; }
+  .site-sidebar .brand { display: block; margin-block-end: var(--s4); overflow-wrap: anywhere; }
+  .site-menu-toggle { display: none; }
+  .site-sidebar .site-foot { width: 100%; margin-block-start: var(--s4); padding-block: var(--s4); }
+  .site-sidebar .site-foot form { width: 100%; margin: 0; display: grid; gap: var(--s3); }
+  .site-sidebar .site-foot label { display: grid; gap: var(--s1); }
+  .site-sidebar .site-foot select { width: 100%; min-width: 0; }
+  @media (max-width: 50rem) {
+    body.site-layout { padding-inline-start: 0; padding-block-start: 4.5rem; }
+    .site-menu-toggle { display: block; position: fixed; inset-block-start: var(--s2); inset-inline-start: var(--s2); z-index: 41; }
+    .site-sidebar { display: none; width: min(19rem, 100%); padding-block-start: 4.5rem; box-shadow: var(--shadow); }
+    body[data-sidebar-open] .site-sidebar { display: block; }
+  }
   .brand { color: var(--fg); font-weight: 600; text-decoration: none; }
-  .site-nav { display: flex; gap: var(--s4); flex-wrap: wrap; }
-  .site-nav a { color: var(--fg-2); text-decoration: none; }
+  .site-nav-label { display:block; padding:.9rem .65rem .35rem; font:600 .6rem/1.5 var(--font-body); letter-spacing:.16em; text-transform:uppercase; opacity:.6; }
+  .site-nav { display: flex; flex-direction: column; gap: var(--s1); }
+  .site-nav a { display: block; padding: .5rem .65rem; border-inline-start: var(--rule-w) solid transparent; color: var(--fg-2); text-decoration: none; }
+  .health-investigation-nav{margin-inline-start:1.2rem;border-inline-start:1px solid var(--hair)}
+  .health-investigation-nav:empty{display:none}
+  .health-investigation-nav a{font-size:.875rem;overflow-wrap:anywhere}
+  .health-investigation-nav small{display:block;font-weight:normal;color:var(--fg-2);font-size:.75rem}
   .site-nav a:hover, .site-nav a:focus-visible { color: var(--fg); text-decoration: underline; }
-  .site-nav a[aria-current="page"] { color: var(--fg); font-weight: 600; }
+  .site-nav a[aria-current="page"] { color: var(--fg); font-weight: 600; background: var(--panel); border-inline-start-color: var(--accent); }
 
   .site-foot { width: min(var(--page-wide), calc(100% - var(--s6))); margin-inline: auto; display: flex; gap: var(--s4); align-items: center; flex-wrap: wrap; padding-block: var(--s3) var(--s5); border-block-start: var(--rule-w) solid var(--rule); color: var(--fg-2); font-size: .875rem; }
   @media (max-width: 40rem) { .site-foot { width: calc(100% - var(--s4) * 2); } }
@@ -479,31 +543,37 @@ const COMPONENTS_CSS = String.raw`
 `;
 
 const NAV: readonly { item: NavItem; href: string; key: `nav.${NavItem}` }[] = [
+  { item: "overview", href: "/", key: "nav.overview" },
+  { item: "rooms", href: "/rooms", key: "nav.rooms" },
   { item: "devices", href: "/devices", key: "nav.devices" },
-  { item: "switches", href: "/switches", key: "nav.switches" },
   { item: "groups", href: "/groups", key: "nav.groups" },
+  { item: "switches", href: "/switches", key: "nav.switches" },
   { item: "buttons", href: "/buttons", key: "nav.buttons" },
-  { item: "tags", href: "/tags", key: "nav.tags" },
-  { item: "kindle", href: "/kindle/designer", key: "nav.kindle" },
   { item: "automations", href: "/automations", key: "nav.automations" },
+  { item: "graph", href: "/graph", key: "nav.graph" },
   { item: "events", href: "/events", key: "nav.events" },
-  { item: "health", href: "/health", key: "nav.health" },
-  { item: "services", href: "/services", key: "nav.services" },
-  { item: "network", href: "/network-isolation", key: "nav.network" },
+  { item: "tags", href: "/tags", key: "nav.tags" },
   { item: "schemas", href: "/schemas", key: "nav.schemas" },
   { item: "api", href: "/api-docs", key: "nav.api" },
+  { item: "health", href: "/health", key: "nav.health" },
+  { item: "bridges", href: "/bridges", key: "nav.bridges" },
+  { item: "services", href: "/services", key: "nav.services" },
+  { item: "network", href: "/network-isolation", key: "nav.network" },
+  { item: "kindle", href: "/kindle/designer", key: "nav.kindle" },
+  { item: "security", href: "/settings/security", key: "nav.security" },
   { item: "tokens", href: "/settings/tokens", key: "nav.tokens" },
 ];
 
-export function renderSiteHeader(ctx: PageContext, active?: NavItem): string {
+export function renderSiteSidebar(ctx: PageContext, active?: NavItem): string {
   const { t } = ctx.i18n;
   const links = NAV
     // A link to a page this caller would be refused is worse than no link.
     .filter((entry) => entry.item !== "network" || ctx.features.isolation)
-    .filter((entry) => entry.item !== "tokens" || ctx.features.admin)
-    .map((entry) => `<a href="${entry.href}"${entry.item === active ? ' aria-current="page"' : ""}>${escapeHtml(t(entry.key))}</a>`)
+    .filter((entry) => !["tokens", "bridges"].includes(entry.item) || ctx.features.admin)
+    .map((entry) => `${entry.item === "overview" ? `<span class="site-nav-label">${escapeHtml(t("nav.section.home"))}</span>` : entry.item === "graph" ? `<span class="site-nav-label">${escapeHtml(t("nav.section.explore"))}</span>` : entry.item === "health" ? `<span class="site-nav-label">${escapeHtml(t("nav.section.system"))}</span>` : ""}<a href="${entry.href}"${entry.item === active && !ctx.path.startsWith("/health/investigations/") ? ' aria-current="page"' : ""}>${escapeHtml(t(entry.key))}</a>${entry.item === "health" && ctx.healthInvestigations !== undefined
+      ? `<div class="health-investigation-nav" data-health-investigations>${ctx.healthInvestigations.map(item => `<a href="${escapeHtml(item.href)}" data-investigation-id="${escapeHtml(item.id)}"${ctx.path.split("?")[0] === item.href ? ' aria-current="page"' : ""}>${escapeHtml(item.title)}<small>${escapeHtml(t(`investigation.${item.status}`))}</small></a>`).join("")}</div><span class="sr-only" role="status" aria-live="polite" data-health-announcement></span>` : ""}`)
     .join("");
-  return `<header class="site-head"><a class="brand" href="/">${escapeHtml(ctx.siteTitle)}</a><nav class="site-nav" aria-label="${escapeHtml(t("nav.label"))}">${links}</nav></header>`;
+  return `<button type="button" class="site-menu-toggle btn" aria-controls="site-sidebar" aria-expanded="false">☰ ${escapeHtml(t("nav.label"))}</button><aside class="site-sidebar" id="site-sidebar"><a class="brand" href="/">${escapeHtml(ctx.siteTitle)}</a><nav class="site-nav" aria-label="${escapeHtml(t("nav.label"))}">${links}</nav>${renderSiteFooter(ctx)}</aside>`;
 }
 
 export function renderSiteFooter(ctx: PageContext): string {
@@ -533,12 +603,18 @@ function jsonScript(value: unknown): string {
   return JSON.stringify(value).replaceAll("<", "\\u003c");
 }
 
-export function renderPage({ ctx, title, nav, body, css = "", script = "", messages = [], mainAttributes = "", wide = false, bare = false, nodes = [] }: PageOptions): string {
+export function renderPage({ ctx, title, nav, body, css = "", script = "", modules = [], messages = [], mainAttributes = "", wide = false, bare = false, immersive = false, nodes = [] }: PageOptions): string {
   // A page with no body of its own has nothing to tag, so it gets no panel —
   // and neither does a bare page, which is reached before there is a session
   // to tag anything with.
-  const tagEditor = !bare && body && nav !== "tags" && !body.includes("data-tag-editor") ? ctx.tagEditor?.() ?? "" : "";
-  const api = !bare ? ctx.elementApi?.() : undefined;
+  const tagEditor = !bare && !immersive && body && nav !== "tags" && nav !== "rooms" && !body.includes("data-tag-editor") ? ctx.tagEditor?.() ?? "" : "";
+  const api = !bare && !immersive ? ctx.elementApi?.() : undefined;
+  if (api?.logHref && !body.includes(`href="${escapeHtml(api.logHref)}"`)) {
+    const logTab = `<a href="${escapeHtml(api.logHref)}">${escapeHtml(ctx.i18n.t("device.tabs.log"))}</a>`;
+    const tabs = /<nav\b[^>]*class="[^"]*\btabs\b[^"]*"[^>]*>[\s\S]*?<\/nav>/;
+    if (tabs.test(body)) body = body.replace(tabs, nav => nav.replace("</nav>", `${logTab}</nav>`));
+    else api.tabs = logTab + api.tabs;
+  }
   let content = body + tagEditor;
   if (api) {
     // Page renderers own their header markup. Extend their first page tab bar,
@@ -556,7 +632,7 @@ export function renderPage({ ctx, title, nav, body, css = "", script = "", messa
     content = `${before}${navigation}<div id="element-page-panel" data-element-page-panel${active ? " hidden" : ""}>${page}${tagEditor}</div>${api.body}`;
   }
   const nonce = escapeHtml(ctx.nonce);
-  const dictionary = jsonScript(ctx.i18n.messages(["status.", "feedback.", "action.", "tags.", ...(nodes.length ? ELEMENT_MESSAGE_PREFIXES : []), ...(api ? ["api."] : []), ...messages]));
+  const dictionary = jsonScript(ctx.i18n.messages(["status.", "feedback.", "action.", "tags.", "room.", "investigation.", ...(nodes.length ? ELEMENT_MESSAGE_PREFIXES : []), ...(api ? ["api."] : []), ...messages]));
   const seed = jsonScript(ctx.state.snapshot(nodes));
   const entry = `/ui/${encodeURIComponent(ctx.assetVersion)}/themes/${encodeURIComponent(ctx.theme)}/index.ts`;
   return `<!doctype html>
@@ -567,18 +643,20 @@ export function renderPage({ ctx, title, nav, body, css = "", script = "", messa
     <meta name="color-scheme" content="${ctx.scheme === "auto" ? "light dark" : ctx.scheme}">
     <meta name="referrer" content="no-referrer">
     <title>${title ? `${escapeHtml(title)} · ` : ""}${escapeHtml(ctx.siteTitle)}</title>
-    <style id="ht-css" nonce="${nonce}">${scaleCss()}${themeCss(themeById(ctx.theme))}${COMPONENTS_CSS}${TAG_CSS}${css}${api?.css ?? ""}</style>
+    <style id="ht-css" nonce="${nonce}">${scaleCss()}${themeCss(themeById(ctx.theme))}${COMPONENTS_CSS}${TAG_CSS}${ctx.theme === "wright" ? WRIGHT_THEME_CSS : ""}${css}${api?.css ?? ""}</style>
   </head>
-  <body>
-    ${bare ? "" : renderSiteHeader(ctx, nav)}
+  <body${immersive ? ' class="visual-home"' : bare ? "" : ' class="site-layout"'}>
+    ${bare || immersive ? "" : renderSiteSidebar(ctx, nav)}
     <main${wide ? " data-wide" : ""}${mainAttributes ? ` ${mainAttributes}` : ""}>
 ${content}
     </main>
-    ${renderSiteFooter(ctx)}
+    ${bare ? renderSiteFooter(ctx) : ""}
     <script type="application/json" id="ht-messages" nonce="${nonce}">${dictionary}</script>
     <script type="application/json" id="ht-state" nonce="${nonce}">${seed}</script>
-    <script nonce="${nonce}">${CLIENT_RUNTIME}${bare ? "" : PAGE_STATE_SCRIPT}${TAG_EDITOR_SCRIPT}${script}${api?.script ?? ""}${bare ? "" : PAGE_DISCLOSURE_SCRIPT}</script>
+    <script type="application/json" id="ht-api-addresses" nonce="${nonce}">${jsonScript(ctx.apiAddresses ?? {})}</script>
+    <script nonce="${nonce}">${CLIENT_RUNTIME}${bare ? "" : HEALTH_NAVIGATION_SCRIPT}${bare ? "" : PAGE_STATE_SCRIPT}${TAG_EDITOR_SCRIPT}${BRIDGE_MEMBERSHIP_SCRIPT}${script}${api?.script ?? ""}${bare ? "" : PAGE_DISCLOSURE_SCRIPT}</script>
     ${bare ? "" : `<script type="module" nonce="${nonce}" src="${escapeHtml(entry)}"></script>`}
+    ${modules.map(module => `<script type="module" nonce="${nonce}" src="/ui/${encodeURIComponent(ctx.assetVersion)}/${escapeHtml(module)}"></script>`).join("\n")}
     ${!bare && process.env.HOMETRUTH_RELOAD_VERSION ? `<script nonce="${nonce}">${runtimeUpdateScript(process.env.HOMETRUTH_RELOAD_VERSION)}</script>` : ""}
   </body>
 </html>`;
@@ -587,7 +665,7 @@ ${content}
 /** A page state with nothing cached: the initial HTML says Unknown. */
 export const EMPTY_PAGE_STATE: PageState = { snapshot: () => [] };
 
-export function createPageContext(options: { nonce: string; siteTitle: string; preferences: UiPreferences; i18n: Translator; path: string; features?: { isolation: boolean; admin: boolean }; state?: PageState; assetVersion?: string; rooms?: readonly string[]; tagEditor?: PageContext["tagEditor"]; elementApi?: PageContext["elementApi"] }): PageContext {
+export function createPageContext(options: { nonce: string; siteTitle: string; preferences: UiPreferences; i18n: Translator; path: string; features?: { isolation: boolean; admin: boolean }; state?: PageState; assetVersion?: string; healthInvestigations?: readonly InvestigationSummary[]; apiAddresses?: ApiAddressMappings; rooms?: readonly string[]; bridgeEditor?: PageContext["bridgeEditor"]; tagEditor?: PageContext["tagEditor"]; elementApi?: PageContext["elementApi"] }): PageContext {
   return {
     nonce: options.nonce,
     siteTitle: options.siteTitle,
@@ -598,7 +676,11 @@ export function createPageContext(options: { nonce: string; siteTitle: string; p
     features: options.features ?? { isolation: false, admin: false },
     state: options.state ?? EMPTY_PAGE_STATE,
     assetVersion: options.assetVersion ?? "dev",
+    ...(options.healthInvestigations ? { healthInvestigations: options.healthInvestigations } : {}),
+    ...(options.apiAddresses ? { apiAddresses: options.apiAddresses } : {}),
+    apiPath: path => options.apiAddresses ? publicApiPath(path, options.apiAddresses) : path,
     ...(options.rooms ? { rooms: options.rooms } : {}),
+    ...(options.bridgeEditor ? { bridgeEditor: options.bridgeEditor } : {}),
     ...(options.tagEditor ? { tagEditor: options.tagEditor } : {}),
     ...(options.elementApi ? { elementApi: options.elementApi } : {}),
   };
@@ -642,7 +724,7 @@ export function renderDeviceTabs(ctx: PageContext, device: RegisteredDevice, act
   const { t } = ctx.i18n;
   const base = escapeHtml(device.page);
   const tab = (href: string, id: typeof active, label: string) => `<a href="${href}"${active === id ? ' aria-current="page"' : ""}>${escapeHtml(label)}</a>`;
-  return `<nav class="tabs" aria-label="${escapeHtml(t("device.tabs.label"))}">${tab(base, "controls", t(device.kind === "device" && device.sensors?.length ? "sensor.components" : "device.tabs.controls"))}${tab(`${base}/graph`, "graph", t("device.tabs.graph"))}${tab(`${base}/log`, "log", t("device.tabs.log"))}${tab(`${base}/settings`, "settings", t("device.tabs.settings"))}</nav>`;
+  return `<nav class="tabs" aria-label="${escapeHtml(t("device.tabs.label"))}">${tab(base, "controls", t(device.kind === "device" && device.sensors?.length ? "sensor.components" : "device.tabs.controls"))}${tab(escapeHtml(ctx.apiPath(`/graph?view=dependencies&focus=${encodeURIComponent(elementKey("device", device.id))}`)), "graph", t("device.tabs.graph"))}${tab(`${base}/log`, "log", t("device.tabs.log"))}${tab(`${base}/settings`, "settings", t("device.tabs.settings"))}</nav>`;
 }
 
 /** The link above a device's title to the schema it's an instance of, when that schema has a page. */

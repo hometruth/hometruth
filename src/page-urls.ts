@@ -62,12 +62,11 @@ export class PageDirectory {
   page(source: PageSource, id: string): string | undefined { return this.identities.get(identity({ source, id }))?.page; }
 
   resolve(path: string): { entry: PageEntry; suffix: string } | undefined {
-    for (const suffix of ["", "/settings", "/log", "/light-sync", "/graph", "/SKILL.md", "/openapi.json"]) {
+    for (const suffix of ["", "/settings", "/log", "/light-sync", "/openapi.json"]) {
       if (suffix && !path.endsWith(suffix)) continue;
       const base = suffix ? path.slice(0, -suffix.length) : path;
       const entry = this.paths.get(base);
-      // A graph is drawable for anything with a page, not only a device.
-      const allowed = entry && (entry.source === "device" || (["/graph", "/SKILL.md", "/openapi.json"].includes(suffix)) || (entry.source === "group-switch" && suffix === "/settings"));
+      const allowed = entry && (entry.source === "device" || (["/log", "/openapi.json"].includes(suffix)) || (entry.source === "group-switch" && suffix === "/settings"));
       if (!entry || (suffix && !allowed)) continue;
       return { entry, suffix };
     }

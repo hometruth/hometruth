@@ -2,6 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createApp } from "./app";
+import { elementAddress } from "./test-addresses";
 import { ALARM_CAPTURE_DIRECTORY } from "../vendors/tkenpro/alarm-upload";
 import { Site } from "../site";
 import { TKENPRO_2K_PET_CAMERA_TREAT_DISPENSER } from "../devices/treat-dispensers/tkenpro-2k-pet-camera-treat-dispenser";
@@ -30,7 +31,9 @@ async function fixture(options: { withKey?: boolean } = {}) {
     {},
     options.withKey === false ? undefined : { schemaVersion: 1, devices: { [DEVICE_ID]: { pictureKey: KEY } } },
   );
-  return createApp(undefined, site);
+  const app = createApp(undefined, site);
+  const alarms = `/api/devices/${await elementAddress(app, "device", DEVICE_ID)}/alarms`;
+  return { app, alarms };
 }
 
 afterAll(async () => {
@@ -39,8 +42,8 @@ afterAll(async () => {
 
 describe("GET /api/devices/:id/alarms/:file", () => {
   test("undoes the camera's scrambling, so what is served is the real image", async () => {
-    const app = await fixture();
-    const response = await app.request(`/api/devices/${DEVICE_ID}/alarms/${FILE}`);
+    const { app, alarms } = await fixture();
+    const response = await app.request(`${alarms}/${FILE}`);
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("image/jpeg");
     const served = new Uint8Array(await response.arrayBuffer());
@@ -50,24 +53,24 @@ describe("GET /api/devices/:id/alarms/:file", () => {
   });
 
   test("serves the stored bytes unchanged when no picture key is known, rather than pretending", async () => {
-    const app = await fixture({ withKey: false });
-    const response = await app.request(`/api/devices/${DEVICE_ID}/alarms/${FILE}`);
+    const { app, alarms } = await fixture({ withKey: false });
+    const response = await app.request(`${alarms}/${FILE}`);
     expect(response.status).toBe(200);
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(UPLOADED);
   });
 
   test("stays inside that device's own folder: no traversal, no other file types", async () => {
-    const app = await fixture();
+    const { app, alarms } = await fixture();
     for (const name of ["../../secrets.yml", "..%2Fother.jpg", "a/b.jpg", "note.txt", "..jpg.."]) {
-      const response = await app.request(`/api/devices/${DEVICE_ID}/alarms/${encodeURIComponent(name)}`);
+      const response = await app.request(`${alarms}/${encodeURIComponent(name)}`);
       expect(response.status).toBeGreaterThanOrEqual(400);
       expect(response.headers.get("content-type")).not.toBe("image/jpeg");
     }
   });
 
   test("404s for a thumbnail that was not kept, and for a device the site does not have", async () => {
-    const app = await fixture();
-    expect((await app.request(`/api/devices/${DEVICE_ID}/alarms/20260101000000-motion-zzz.jpg`)).status).toBe(404);
+    const { app, alarms } = await fixture();
+    expect((await app.request(`${alarms}/20260101000000-motion-zzz.jpg`)).status).toBe(404);
     expect((await app.request(`/api/devices/nope/alarms/${FILE}`)).status).toBe(404);
   });
 });

@@ -21,7 +21,7 @@ export function clientMethods(api: ElementApi): MethodDefinition[] {
 
 export function clientExamples(api: ElementApi): { name: string; description: string; code: string; signature: string }[] {
   const target = api.kind === "site" ? "ht.elements.root"
-    : api.kind === "device" ? `ht.devices[${JSON.stringify(api.id)}]` : `ht.elements[${JSON.stringify(api.uuid ?? api.key)}]`;
+    : api.kind === "device" ? `ht.devices[${JSON.stringify(api.address)}]` : `ht.elements[${JSON.stringify(api.address)}]`;
   const prefix = `import ht from "./ht";\nawait ht.connect(${JSON.stringify(api.document.servers[0]?.url)});\n\n`;
   return [{ name: "describe", description: "Inspect this element's identity, public properties and available methods.", signature: "describe(): Promise<ElementDescription>", code: `${prefix}console.log(await ${target}.describe());` },
     ...api.commands.map(command => {

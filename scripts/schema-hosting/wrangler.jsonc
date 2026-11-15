@@ -7,6 +7,13 @@
   "preview_urls": false,
   "routes": [{ "pattern": "hometruth.ai", "custom_domain": true }],
   "build": { "command": "bun run schemas:build" },
+  "assets": {
+    "directory": "../../dist/schema-hosting/assets",
+    "binding": "ASSETS",
+    "run_worker_first": true,
+    "html_handling": "none",
+    "not_found_handling": "none"
+  },
   "no_bundle": true,
   "observability": { "enabled": true, "head_sampling_rate": 1 },
   "env": {

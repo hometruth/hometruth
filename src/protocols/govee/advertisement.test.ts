@@ -26,7 +26,8 @@ describe("Govee H5075 broadcasts", () => {
     }
     const frame = { type: "advertisement", peripheralId: "00000000-0000-0000-0000-000000000001", name: "GVH5075_ABCD", manufacturerData: "88ec000447996400", rssi: -45 };
     expect(parseH5075Advertisement(frame, 1000)).toMatchObject({ temperatureC: 28, receivedAt: 1000, rssi: -45 });
-    for (const change of [{ name: "GVH5072_ABCD" }, { peripheralId: "anything" }, { manufacturerData: "88ec0004479964gg" }, { type: "status" }]) {
+    expect(parseH5075Advertisement({ ...frame, peripheralId: "a4:c1:38:9e:ad:01" }, 1000)).toMatchObject({ peripheralId: "A4:C1:38:9E:AD:01" });
+    for (const change of [{ name: "GVH5072_ABCD" }, { peripheralId: "anything" }, { peripheralId: "A4:C1:38:9E:AD" }, { manufacturerData: "88ec0004479964gg" }, { type: "status" }]) {
       expect(parseH5075Advertisement({ ...frame, ...change }, 1000)).toBeUndefined();
     }
     expect(parseH5075Advertisement({ ...frame, rssi: 127 }, 1000)?.rssi).toBeUndefined();

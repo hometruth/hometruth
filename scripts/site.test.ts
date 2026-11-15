@@ -17,6 +17,11 @@ test("external config paths resolve without starting services", async () => {
   const root = await fixture();
   expect(await siteEnvironment(root)).toEqual({ HOST: "127.0.0.1", PORT: "3000", HOMETRUTH_DEVICES: join(root, "devices.yml") });
 });
+test("installation can select HomeKit IPv4-only networking", async () => {
+  const root = await fixture();
+  await Bun.write(join(root, "site.json"), JSON.stringify({ environment: { HOMETRUTH_HOMEKIT_IPV4_ONLY: "true" } }));
+  expect((await siteCommand(root, "start")).env.HOMETRUTH_HOMEKIT_IPV4_ONLY).toBe("true");
+});
 test("private config rejects credentials, URL credentials and unknown environment variables", async () => {
   for (const value of [{ password: "test-only" }, { nested: { apiKey: "test-only" } }, { url: "rtsp://user:test-only@camera/" }, { url: "https://example.com/?X-Amz-Signature=test-only" }]) expect(() => assertCredentialFree(value)).toThrow();
   expect(() => assertCredentialFree({ passwordEnv: "MQTT_PASSWORD", tokenEnv: "SERVICE_TOKEN" })).not.toThrow();

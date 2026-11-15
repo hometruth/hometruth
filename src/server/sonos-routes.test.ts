@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { createApp } from "./app";
+import { elementAddress } from "./test-addresses";
 import { clearSayClips, registerSayClip, type SaySynthesizer } from "../devices/speakers/sonos/say";
 import { SONOS } from "../devices/speakers/sonos";
 import { Device, type DeviceIdentity } from "../models/device";
 import { Speaker, SpeakerError, type SpeakerState } from "../models/speaker";
 import { Site } from "../site";
 import { validators } from "../validation";
+import { elementKey } from "../tags/identity";
 
 /** A fake synthesizer so tests never spawn the real macOS `say` process. */
 const fakeSynthesizeSayClip: SaySynthesizer = async () => new Uint8Array([1, 2, 3, 4]);
@@ -89,62 +91,63 @@ class FakeSpeakerDevice extends Device<{ host: string; group?: string }> {
   }
 }
 
-function fixture() {
+async function fixture() {
   const speaker = new FakeSpeaker("sonos1");
   const site = new Site([new FakeSpeakerDevice("sonos1", "Living room Sonos", speaker)]);
   const app = createApp(undefined, site);
   const json = (path: string, method = "GET", body?: unknown) => app.request(path, method === "GET"
     ? { method }
     : { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body ?? {}) });
-  return { app, json, speaker };
+  const base = `/api/devices/${await elementAddress(app, "device", "sonos1")}`;
+  return { app, json, speaker, base };
 }
 
 describe("speaker capability routes", () => {
   test("GET returns a schema-valid speaker document", async () => {
-    const { json } = fixture();
-    const response = await json("/api/devices/sonos1");
+    const { json, base } = await fixture();
+    const response = await json(`${base}`);
     expect(response.status).toBe(200);
     const body = await response.json() as { object: { capabilities: { speaker: unknown } } };
     expect(validators.speaker(body.object.capabilities.speaker), JSON.stringify(validators.speaker.errors)).toBe(true);
   });
 
   test("play/pause/stop dispatch to the capability", async () => {
-    const { json, speaker } = fixture();
-    expect((await json("/api/devices/sonos1/capabilities/speaker/controls/play", "POST", { value: null })).status).toBe(200);
-    expect((await json("/api/devices/sonos1/capabilities/speaker/controls/pause", "POST", { value: null })).status).toBe(200);
-    expect((await json("/api/devices/sonos1/capabilities/speaker/controls/stop", "POST", { value: null })).status).toBe(200);
+    const { json, speaker, base } = await fixture();
+    expect((await json(`${base}/capabilities/speaker/controls/play`, "POST", { value: null })).status).toBe(200);
+    expect((await json(`${base}/capabilities/speaker/controls/pause`, "POST", { value: null })).status).toBe(200);
+    expect((await json(`${base}/capabilities/speaker/controls/stop`, "POST", { value: null })).status).toBe(200);
     expect(speaker.calls).toEqual(["play", "pause", "stop"]);
   });
 
   test("setVolume and setMute pass their value through", async () => {
-    const { json, speaker } = fixture();
-    expect((await json("/api/devices/sonos1/capabilities/speaker/controls/setVolume", "POST", { value: 55 })).status).toBe(200);
-    expect((await json("/api/devices/sonos1/capabilities/speaker/controls/setMute", "POST", { value: true })).status).toBe(200);
+    const { json, speaker, base } = await fixture();
+    expect((await json(`${base}/capabilities/speaker/controls/setVolume`, "POST", { value: 55 })).status).toBe(200);
+    expect((await json(`${base}/capabilities/speaker/controls/setMute`, "POST", { value: true })).status).toBe(200);
     expect(speaker.calls).toEqual(["setVolume:55", "setMute:true"]);
   });
 
   test("joinGroup and leaveGroup dispatch to the capability", async () => {
-    const { json, speaker } = fixture();
-    expect((await json("/api/devices/sonos1/capabilities/speaker/controls/joinGroup", "POST", { value: "10.77.0.171" })).status).toBe(200);
-    expect((await json("/api/devices/sonos1/capabilities/speaker/controls/leaveGroup", "POST", { value: null })).status).toBe(200);
+    const { json, speaker, base } = await fixture();
+    expect((await json(`${base}/capabilities/speaker/controls/joinGroup`, "POST", { value: "10.77.0.171" })).status).toBe(200);
+    expect((await json(`${base}/capabilities/speaker/controls/leaveGroup`, "POST", { value: null })).status).toBe(200);
     expect(speaker.calls).toEqual(["joinGroup:10.77.0.171", "leaveGroup"]);
   });
 
   test("say dispatches with the text value", async () => {
-    const { json, speaker } = fixture();
-    const response = await json("/api/devices/sonos1/capabilities/speaker/controls/say", "POST", { value: "hello there" });
+    const { json, speaker, base } = await fixture();
+    const response = await json(`${base}/capabilities/speaker/controls/say`, "POST", { value: "hello there" });
     expect(response.status).toBe(200);
     expect(speaker.calls).toEqual(["say:hello there"]);
   });
 
   test("unknown device id 404s", async () => {
-    const { json } = fixture();
+    const { json } = await fixture();
     const response = await json("/api/devices/nope/capabilities/speaker/controls/play", "POST", { value: null });
     expect(response.status).toBe(404);
   });
 
   test("the device list reports the speaker's availability via getState", async () => {
-    const { json, speaker } = fixture();
+    const { json, speaker } = await fixture();
     const online = await (await json("/api/devices")).json() as { devices: { id: string; availability: string }[] };
     expect(online.devices).toEqual([{ id: "sonos1", availability: "online" }].map((d) => expect.objectContaining(d)));
 
@@ -156,7 +159,7 @@ describe("speaker capability routes", () => {
 
 describe("Sonos say clip route", () => {
   test("serves a registered clip as audio/wav", async () => {
-    const { app } = fixture();
+    const { app } = await fixture();
     const { path } = await registerSayClip("hello", fakeSynthesizeSayClip);
     const response = await app.request(path);
     expect(response.status).toBe(200);
@@ -166,13 +169,13 @@ describe("Sonos say clip route", () => {
   });
 
   test("404s for an unknown clip id", async () => {
-    const { app } = fixture();
+    const { app } = await fixture();
     const response = await app.request("/local-media/say/00000000-0000-0000-0000-000000000000.wav");
     expect(response.status).toBe(404);
   });
 
   test("404s for a malformed filename", async () => {
-    const { app } = fixture();
+    const { app } = await fixture();
     const response = await app.request("/local-media/say/../../etc/passwd");
     expect(response.status).toBe(404);
   });
@@ -196,6 +199,38 @@ describe("Sonos group page", () => {
     expect(html).toContain('data-device-id="sonos-left"');
     expect(html).toContain('data-device-id="sonos-right"');
     expect(html).not.toContain('data-device-id="sonos-kitchen"');
+    expect(html.match(/<form[^>]*data-room-picker/g)).toHaveLength(1);
+    expect(html).toContain('id="element-room-title">Room</h2>');
+  });
+
+  test("speaker groups have their own editable Room separate from member rooms and ordinary tags", async () => {
+    const { app } = groupFixture();
+    const key = elementKey("speaker-group", "Living Room");
+    const endpoint = `/api/elements/${await elementAddress(app, "speaker-group", "Living Room")}/tags`;
+    const assign = (body: unknown) => app.request(endpoint, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+    });
+    expect((await assign({ value: "music" })).status).toBe(200);
+    expect((await assign({ name: "room", value: "Lounge" })).status).toBe(200);
+    const html = await (await app.request("/groups/living-room")).text();
+    expect(html).toContain('<option value="room:Lounge" selected>Lounge</option>');
+    expect(html).toContain('>music</a>');
+    expect(html).not.toContain('>room = Lounge</a>');
+    const data = JSON.parse(html.match(/data-tag-editor-data>(.*?)<\/script>/s)![1]!);
+    expect(data.elements).toHaveLength(1);
+    expect(data.elements[0].key).toBe(key);
+    for (const id of ["sonos-left", "sonos-right"]) {
+      const member = await (await app.request(`/api/elements/${await elementAddress(app, "device", id)}/tags`)).json();
+      expect(member.tags).toEqual([]);
+    }
+    const assigned = await (await app.request(endpoint)).json();
+    const room = assigned.tags.find((tag: { name: string; value: string }) => tag.name === "room");
+    expect((await app.request(`${endpoint}/${await elementAddress(app, "tag", room.name, room.value)}`, {
+      method: "DELETE", headers: { "content-type": "application/json" }, body: "{}",
+    })).status).toBe(200);
+    const cleared = await (await app.request("/groups/living-room")).text();
+    expect(cleared).toContain('data-room-current><span class="muted">No room</span>');
+    expect(cleared).toContain('>music</a>');
   });
 
   test("404s for an unknown group slug", async () => {

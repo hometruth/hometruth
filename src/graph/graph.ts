@@ -18,7 +18,10 @@ export interface GraphContents {
   readonly generatedAt: string;
 }
 
-const edgeKey = (edge: GraphEdge) => `${edge.from}\u0000${edge.to}\u0000${edge.relation}`;
+/** Exact semantic identity: distinct roles, narrowed capabilities and origins survive. */
+export const edgeIdentity = (edge: GraphEdge): string => JSON.stringify([
+  edge.from, edge.to, edge.relation, edge.label ?? null, edge.via ?? null, edge.origin,
+]);
 
 export class Graph {
   readonly generatedAt: string;
@@ -42,7 +45,7 @@ export class Graph {
     for (const edge of contents.edges) {
       if (edge.from === edge.to) continue;
       if (!nodes.has(edge.from) || !nodes.has(edge.to)) continue;
-      const key = edgeKey(edge);
+      const key = edgeIdentity(edge);
       if (seen.has(key)) continue;
       seen.add(key);
       edges.push(edge);

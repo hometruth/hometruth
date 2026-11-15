@@ -3,25 +3,16 @@ import type { FromSchema } from "json-schema-to-ts";
 import type { BinarySwitch as BinarySwitchDocument } from "../../../schemas";
 import { BinarySwitch, BinarySwitchError, type BinarySwitchState } from "../../../models/binary-switch";
 import { Button } from "../../../models/button";
-import { combinedAvailability } from "../../../models/capability";
+import type { Availability } from "../../../models/capability";
 import { Device, type CapabilityMethods, type DeviceCreationContext, type DeviceIdentity, type DeviceInstance, type DeviceModel, type SecretsBag, type SiteServices } from "../../../models/device";
 import { binarySwitchSchema } from "../../../schemas";
 import { describeValidationErrors, validators } from "../../../validation";
-
-export interface OptimisticSwitchStateStore {
-  get(id: string): BinarySwitchState | undefined;
-  set(id: string, state: BinarySwitchState): void;
-}
-
-export class MemoryOptimisticSwitchStateStore implements OptimisticSwitchStateStore {
-  private readonly states = new Map<string, BinarySwitchState>();
-  get(id: string) { return this.states.get(id); }
-  set(id: string, state: BinarySwitchState) { this.states.set(id, state); }
-}
+import { MemoryOptimisticSwitchStateStore, type OptimisticSwitchMemory, type OptimisticSwitchState, type OptimisticSwitchStateStore } from "./state-store";
+export { MemoryOptimisticSwitchStateStore, SqliteOptimisticSwitchStateStore, type OptimisticSwitchStateStore } from "./state-store";
 
 declare module "../../../models/device" {
   interface SiteServices {
-    /** Shared across live config reloads so optimistic state is not reset by an edit. */
+    /** Shared across reloads; production retains the last command across restarts. */
     optimisticSwitchStates?: OptimisticSwitchStateStore;
   }
 }
@@ -44,6 +35,8 @@ export type OptimisticSwitchConfig = FromSchema<typeof OPTIMISTIC_SWITCH_CONFIG_
 
 export class OptimisticButtonSwitch extends BinarySwitch {
   private readonly unsubscribes: readonly (() => void)[];
+  private readonly memory: OptimisticSwitchMemory;
+  private readonly assumption: OptimisticSwitchState | undefined;
 
   /** Same Button for both: a power-button toggle, so a press flips remembered state instead of naming on or off. */
   private readonly isToggle: boolean;
@@ -52,54 +45,57 @@ export class OptimisticButtonSwitch extends BinarySwitch {
     id: string,
     readonly onButton: Button,
     readonly offButton: Button,
-    private readonly states: OptimisticSwitchStateStore,
+    states: OptimisticSwitchStateStore,
+    private readonly availability: () => Availability,
     initialState?: BinarySwitchState,
+    private readonly now: () => Date = () => new Date(),
   ) {
     super(id);
     this.isToggle = onButton === offButton;
-    if (states.get(id) === undefined && initialState !== undefined) states.set(id, initialState);
+    this.memory = states.forSwitch(id, onButton.id, offButton.id);
+    this.assumption = initialState === undefined ? undefined : { value: initialState, source: "assumed", at: this.now().toISOString() };
     this.unsubscribes = this.isToggle
-      ? [onButton.subscribe(() => states.set(id, states.get(id) === "on" ? "off" : "on"))]
+      ? [onButton.subscribe(() => this.remember(this.remembered()?.value === "on" ? "off" : "on"))]
       : [
-          onButton.subscribe(() => states.set(id, "on")),
-          offButton.subscribe(() => states.set(id, "off")),
+          onButton.subscribe(() => this.remember("on")),
+          offButton.subscribe(() => this.remember("off")),
         ];
   }
 
+  private remembered(): OptimisticSwitchState | undefined { return this.memory.get() ?? this.assumption; }
+
+  private remember(value: BinarySwitchState): void {
+    this.memory.set({ value, source: "commanded", at: this.now().toISOString() });
+  }
+
   async turnOn(): Promise<void> {
-    if (this.isToggle) { if (this.states.get(this.id) !== "on") await this.onButton.press(); return; }
+    if (this.isToggle) { if (this.remembered()?.value !== "on") await this.onButton.press(); return; }
     await this.onButton.press();
   }
   async turnOff(): Promise<void> {
-    if (this.isToggle) { if (this.states.get(this.id) !== "off") await this.offButton.press(); return; }
+    if (this.isToggle) { if (this.remembered()?.value !== "off") await this.offButton.press(); return; }
     await this.offButton.press();
   }
   async toggle(): Promise<void> {
     if (this.isToggle) { await this.onButton.press(); return; }
-    if (this.states.get(this.id) === "on") await this.turnOff();
+    if (this.remembered()?.value === "on") await this.turnOff();
     else await this.turnOn();
   }
   async getState(): Promise<BinarySwitchState> {
-    const state = this.states.get(this.id);
+    const state = this.remembered();
     if (!state) throw new BinarySwitchError("No button has been pressed yet, so this optimistic switch's state is unknown", "unknown_state");
-    return state;
-  }
-
-  /** This switch is only ever as reachable as the button(s) that carry out its presses. */
-  private async buttonsAvailability(): Promise<ReturnType<typeof combinedAvailability>> {
-    const buttons = this.isToggle ? [this.onButton] : [this.onButton, this.offButton];
-    const documents = await Promise.all(buttons.map((button) => button.describe()));
-    return combinedAvailability(documents.map((document) => document.state.availability));
+    return state.value;
   }
 
   /** Snapshot combining the remembered value with the buttons' own reachability, not this switch's own memory. */
   override async describe(): Promise<BinarySwitchDocument> {
     const actions = { turnOn: {}, turnOff: {}, toggle: {}, getState: {} } as const;
-    const availability = await this.buttonsAvailability();
-    const value = this.states.get(this.id);
-    const candidate: unknown = value === undefined
+    const availability = this.availability();
+    const remembered = this.remembered();
+    const candidate: unknown = remembered === undefined
       ? { id: this.id, state: { availability }, actions }
-      : { id: this.id, state: { availability, value, observedAt: new Date().toISOString() }, actions };
+      : { id: this.id, state: { availability, value: remembered.value, stateSource: remembered.source,
+        ...(remembered.source === "commanded" ? { commandedAt: remembered.at } : { assumedAt: remembered.at }) }, actions };
     if (!validators.binarySwitch(candidate)) {
       throw new Error(`Invalid binary switch document: ${describeValidationErrors(validators.binarySwitch.errors)}`);
     }
@@ -109,11 +105,11 @@ export class OptimisticButtonSwitch extends BinarySwitch {
   close(): void { for (const unsubscribe of this.unsubscribes) unsubscribe(); }
 }
 
-function buttonFrom(context: DeviceCreationContext, id: string, label: string): Button {
+function buttonFrom(context: DeviceCreationContext, id: string, label: string): { device: Device; button: Button } {
   const device = context.device(id, { relation: "uses", label, capability: "button" });
   const button = device.capability("button");
   if (!(button instanceof Button)) throw new BinarySwitchError(`${device.name} (${id}) is not a Button`, "protocol");
-  return button;
+  return { device, button };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
@@ -123,23 +119,26 @@ export class OptimisticSwitchDevice extends Device<OptimisticSwitchConfig> {
   readonly model = OPTIMISTIC_SWITCH;
   readonly capabilities;
   readonly switch: OptimisticButtonSwitch;
+  override readonly availabilitySources: readonly Device[];
 
   constructor(instance: DeviceInstance, config: OptimisticSwitchConfig, services: SiteServices, context: DeviceCreationContext) {
     super(instance.id, instance.name, config);
     const states = services.optimisticSwitchStates ?? new MemoryOptimisticSwitchStateStore();
+    const on = buttonFrom(context, config.onButton, "on");
+    const off = buttonFrom(context, config.offButton, "off");
+    this.availabilitySources = [...new Set([on.device, off.device])];
     this.switch = new OptimisticButtonSwitch(
       instance.id,
-      buttonFrom(context, config.onButton, "on"),
-      buttonFrom(context, config.offButton, "off"),
+      on.button,
+      off.button,
       states,
+      () => this.availability(),
       config.initialState,
     );
     this.capabilities = this.expose({ binarySwitch: this.switch });
   }
 
   override async probe(): Promise<DeviceIdentity> {
-    const { state } = await this.switch.describe();
-    if (state.availability === "offline") throw new BinarySwitchError("The switch's buttons are unavailable", "unreachable");
     return { model: OPTIMISTIC_SWITCH.product };
   }
   override displayHost(): string {

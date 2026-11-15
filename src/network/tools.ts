@@ -11,7 +11,7 @@ export const NETWORK_TOOLS_HELP = `Network Tools — run from the HomeTruth chec
   clients                                           wired and wireless client inventory
   find <mac-or-ip>                                   one client by stable MAC or IP
   reserve <mac> <ip>                                 save and verify a router DHCP reservation
-  save <device-id> <mac> <ip>                         save router + HomeTruth settings via the running server
+  save <device-address> <mac> <ip>                    save router + HomeTruth settings using its current friendly address
   reconnect <mac-or-ip>                              reconnect a Wi-Fi client
   dns status|on|off <hostname> <server-ip>             inspect or change a DNS override
   internet status|on|off <mac> <label>                 inspect or change an internet block

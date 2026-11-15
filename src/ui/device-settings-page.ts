@@ -1,21 +1,20 @@
 import type { NetworkAddressClient } from "../network/adapter";
+import type { IsolationStatus } from "../network/isolation";
 import { isIPv4 } from "node:net";
-import type { MatterBridgeSettings } from "../integrations/matter/settings";
 import { schemaPagePath } from "../schema-catalog";
 import type { RegisteredDevice } from "../site";
-import { renderRoomPicker, ROOM_PICKER_SCRIPT } from "./room-picker";
 import { capabilityLabel, deviceConnectionLabel, deviceNav, escapeHtml, renderDeviceHead, renderPage, type PageContext } from "./shell";
 import { SWITCH_DEFINITION_CSS } from "./switch-definition";
+import { DEVICE_NETWORK_SCRIPT, renderDeviceNetwork } from "./device-network-settings";
 
 export interface DeviceSettingsPageOptions {
   ctx: PageContext;
   device: RegisteredDevice;
-  matter?: MatterBridgeSettings;
-  matterError?: string;
   switchDefinition?: string;
   networkClients?: readonly NetworkAddressClient[];
   networkMac?: string | undefined;
   networkWritable?: boolean;
+  isolation?: IsolationStatus | undefined;
 }
 
 const SETTINGS_CSS = String.raw`
@@ -25,7 +24,7 @@ const SETTINGS_CSS = String.raw`
   @media (max-width: 36rem) { .pairing { grid-template-columns: 1fr; } }
 `;
 
-/** Rename and Wi-Fi reconnect; the room form has its own script. */
+/** Rename and Wi-Fi reconnect. */
 const SETTINGS_SCRIPT = String.raw`
   (() => {
     const renameForm = document.querySelector("[data-device-rename]");
@@ -145,32 +144,6 @@ const SETTINGS_SCRIPT = String.raw`
   })();
 `;
 
-function renderAppleHome(ctx: PageContext, device: RegisteredDevice, matter?: MatterBridgeSettings, matterError?: string): string {
-  const { t } = ctx.i18n;
-  const section = (inner: string) => `<section aria-labelledby="apple-home-title"><h2 id="apple-home-title">${escapeHtml(t("settings.apple.title"))}</h2>${inner}</section>`;
-  if (!device.capabilities.includes("binarySwitch")) return section(`<p class="note">${escapeHtml(t("settings.apple.notExported"))}</p>`);
-  if (!matter?.qrCodeDataUrl) return section(`<p class="feedback" data-tone="bad">${escapeHtml(matterError ?? t("settings.apple.noCode"))}</p>`);
-  const included = matter.switchIds.includes(device.id);
-  const updated = matter.updatedAt ? `<p class="note">${escapeHtml(t("settings.apple.updated", { time: ctx.i18n.dateTime(matter.updatedAt) }))}</p>` : "";
-  if (matter.commissioned) {
-    return section(`
-      <p class="status" data-availability="${matter.running ? "online" : "offline"}"><span class="mark" data-availability="${matter.running ? "online" : "offline"}" aria-hidden="true"></span>${escapeHtml(matter.running ? t("settings.apple.paired") : t("settings.apple.pairedStopped"))}</p>
-      <p>${escapeHtml(included ? t("settings.apple.included") : t("settings.apple.pending"))} ${escapeHtml(t("settings.apple.roomsNote"))}</p>
-      <p class="note">${escapeHtml(t("settings.apple.dontScan"))}</p>
-      <details><summary>${escapeHtml(t("settings.apple.showCode"))}</summary><img class="qr" data-matter-pairing-qr src="${escapeHtml(matter.qrCodeDataUrl)}" alt="${escapeHtml(t("settings.apple.qrAlt"))}"></details>
-      ${updated}`);
-  }
-  return section(`
-    <div class="pairing">
-      <img class="qr" data-matter-pairing-qr src="${escapeHtml(matter.qrCodeDataUrl)}" alt="${escapeHtml(t("settings.apple.qrAlt"))}">
-      <div>
-        <p class="status" data-availability="${matter.running ? "online" : "offline"}"><span class="mark" data-availability="${matter.running ? "online" : "offline"}" aria-hidden="true"></span>${escapeHtml(matter.running ? t("settings.apple.ready") : t("settings.apple.stopped"))}</p>
-        <p>${escapeHtml(t("settings.apple.scanOnce"))} ${escapeHtml(t("settings.apple.roomsNote"))}</p>
-        ${matter.manualPairingCode ? `<p class="muted small">${escapeHtml(t("settings.apple.manualCode"))}</p><p class="manual-code">${escapeHtml(matter.manualPairingCode)}</p>` : ""}
-        ${updated}
-      </div>
-    </div>`);
-}
 
 function renderIpSettings(ctx: PageContext, device: RegisteredDevice, clients: readonly NetworkAddressClient[], mac: string | undefined, writable: boolean): string {
   const { t } = ctx.i18n;
@@ -211,13 +184,13 @@ function renderIdentity(ctx: PageContext, device: RegisteredDevice): string {
       <dt>${escapeHtml(t("device.address"))}</dt><dd class="mono">${escapeHtml(device.host)}</dd>
       <dt>${escapeHtml(t("device.id"))}</dt><dd class="mono">${escapeHtml(device.id)}</dd>
       <dt>${escapeHtml(t("device.schema"))}</dt><dd>${schemaLink(device.schemaId)}</dd>
-      <dt>${escapeHtml(t("device.json"))}</dt><dd><a href="/api/devices/${encodeURIComponent(device.id)}">/api/devices/${escapeHtml(device.id)}</a>${lightSync}</dd>
+      <dt>${escapeHtml(t("device.json"))}</dt><dd><a href="${escapeHtml(ctx.apiPath(`/api/devices/${encodeURIComponent(device.id)}`))}">${escapeHtml(ctx.apiPath(`/api/devices/${encodeURIComponent(device.id)}`))}</a>${lightSync}</dd>
     </dl>
   </section>`;
 }
 
 /** Every device gets this settings surface; exportable devices also get their pairing code. */
-export function renderDeviceSettingsPage({ ctx, device, matter, matterError, switchDefinition = "", networkClients = [], networkMac, networkWritable = false }: DeviceSettingsPageOptions): string {
+export function renderDeviceSettingsPage({ ctx, device, switchDefinition = "", networkClients = [], networkMac, networkWritable = false, isolation }: DeviceSettingsPageOptions): string {
   const { t } = ctx.i18n;
   return renderPage({
     ctx,
@@ -234,10 +207,6 @@ export function renderDeviceSettingsPage({ ctx, device, matter, matterError, swi
           <output class="feedback" data-device-rename-feedback role="status" aria-live="polite"></output>
         </form>
       </section>
-      <section aria-labelledby="room-title">
-        <h2 id="room-title">${escapeHtml(t("room.label"))}</h2>
-        ${renderRoomPicker(ctx, device)}
-      </section>
       <section aria-labelledby="enabled-title">
         <h2 id="enabled-title">${escapeHtml(t("settings.enabled.title"))}</h2>
         <label class="field-row"><input type="checkbox" data-device-enabled data-device-id="${escapeHtml(device.id)}" ${device.enabled ? "checked" : ""}> ${escapeHtml(t("settings.enabled.label"))}</label>
@@ -246,13 +215,13 @@ export function renderDeviceSettingsPage({ ctx, device, matter, matterError, swi
       </section>
       ${device.parent ? "" : `<section aria-labelledby="network-title">
         <h2 id="network-title">${escapeHtml(t("settings.network.title"))}</h2>
+        ${renderDeviceNetwork(ctx, device, networkClients, networkMac, isolation)}
         <div class="bar"><button type="button" class="btn" data-network-reconnect data-device-id="${escapeHtml(device.id)}" title="${escapeHtml(t("settings.network.reconnectHint"))}">${escapeHtml(t("settings.network.reconnect"))}</button><button type="button" class="btn" data-network-rescan data-device-id="${escapeHtml(device.id)}" title="${escapeHtml(t("rescan.deviceHint"))}">${escapeHtml(t("rescan.device"))}</button></div>
         <p class="feedback" data-network-reconnect-feedback role="status" aria-live="polite"></p>
       </section>
       ${renderIpSettings(ctx, device, networkClients, networkMac, networkWritable)}`}
-      ${renderAppleHome(ctx, device, matter, matterError)}
       ${renderIdentity(ctx, device)}`,
-    script: SETTINGS_SCRIPT + ROOM_PICKER_SCRIPT,
+    script: SETTINGS_SCRIPT + DEVICE_NETWORK_SCRIPT,
     messages: ["settings.network.", "settings.ip.", "settings.enabled.", "settings.nameFailed", "room.", "rescan."],
   });
 }

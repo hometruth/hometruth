@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { SHELLY_PLUS_1 } from "../devices/switches/shelly-plus-1";
+import { ActionButtonDevice } from "../devices/composites/action-button";
+import { OptimisticSwitchDevice } from "../devices/composites/optimistic-switch";
 import { BinarySwitch, type BinarySwitchState } from "../models/binary-switch";
 import { Button, type ButtonPressOptions } from "../models/button";
 import { Device, type DeviceIdentity, type DeviceModel } from "../models/device";
@@ -9,7 +11,75 @@ import { Graph } from "./graph";
 import { FLOORS_MS, Observer, readFault, TIER_MS, type ObserverBinding, type ObserverTimers } from "./observer";
 import { deviceNode, groupNode, type GroupSwitch, type NodeId } from "./protocol";
 
+function dependentControls(source: Device) {
+  const on = new ActionButtonDevice({ id: "on", name: "On" }, { device: source.id, control: "turnOn" }, {}, { device: () => source });
+  const off = new ActionButtonDevice({ id: "off", name: "Off" }, { device: source.id, control: "turnOff" }, {}, { device: () => source });
+  const control = new OptimisticSwitchDevice({ id: "control", name: "Control" }, { onButton: on.id, offButton: off.id }, {}, { device: id => id === on.id ? on : off });
+  return { on, off, control, site: new Site([source, on, off, control]) };
+}
+
 const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+test("watching only a dependent control observes its source once and propagates failures and recovery", async () => {
+  const source = new SwitchDevice("source", "Source");
+  const f = dependentControls(source);
+  const h = harness(f.site);
+  h.observer.bind({ ...h.binding, describe: async device => {
+    h.reads.push(device.id);
+    if (h.failing.has(device.id)) throw new Error("timed out");
+    return device.describe();
+  } });
+  const release = h.observer.retain(deviceNode(f.control.id), "live");
+  try {
+    await h.timers.advance(250);
+    expect(h.reads.filter(id => id === source.id)).toHaveLength(1);
+    expect(h.graph.read(deviceNode(f.control.id))?.value).toMatchObject({ status: "online", capabilities: { binarySwitch: { state: { availability: "online" } } } });
+    const dependentReads = h.reads.filter(id => id !== source.id).length;
+    await h.timers.advance(5_000);
+    expect(h.reads.filter(id => id === source.id)).toHaveLength(2);
+    expect(h.reads.filter(id => id !== source.id)).toHaveLength(dependentReads);
+    h.failing.set(source.id, "timed out");
+    await h.observer.refresh(deviceNode(source.id));
+    await settle();
+    expect(h.graph.read(deviceNode(source.id))?.fault?.code).toBe("timeout");
+    expect(h.graph.read(deviceNode(f.control.id))?.value).toMatchObject({ status: "offline", health: { status: "unhealthy" } });
+    h.failing.clear();
+    await h.observer.refresh(deviceNode(source.id));
+    await settle();
+    expect(h.graph.read(deviceNode(f.control.id))?.value).toMatchObject({ status: "online", health: { status: "healthy" } });
+    release();
+    expect(h.observer.watching()).toEqual([]);
+    const reads = h.reads.length;
+    await h.timers.advance(60_000);
+    expect(h.reads).toHaveLength(reads);
+  } finally { release(); h.observer.stop(); await f.control.close(); }
+});
+
+test("a retained control follows replacement sources on rebind and releases the former source", async () => {
+  const a = dependentControls(new SwitchDevice("source-a", "Source A"));
+  const b = dependentControls(new SwitchDevice("source-b", "Source B"));
+  const live = liveSite(a.site);
+  const h = harness(live.site);
+  const binding = { ...h.binding, describe: async (device: Device) => { h.reads.push(device.id); return device.describe(); } };
+  h.observer.bind(binding);
+  const release = h.observer.retain(deviceNode("control"), "glance");
+  try {
+    await h.timers.advance(250);
+    live.swap(b.site);
+    h.observer.bind(binding);
+    h.reads.length = 0;
+    await h.timers.advance(250);
+    expect(h.observer.isRetained(deviceNode("source-a"))).toBe(false);
+    expect(h.observer.isRetained(deviceNode("source-b"))).toBe(true);
+    expect(h.reads.filter(id => id === "source-b")).toHaveLength(1);
+    expect(h.reads).not.toContain("source-a");
+    a.site.get("source-a")!.reportAvailability("offline");
+    await settle();
+    expect(h.graph.read(deviceNode("control"))?.value).toMatchObject({ status: "online" });
+    release();
+    expect(h.observer.watching()).toEqual([]);
+  } finally { release(); h.observer.stop(); await a.control.close(); await b.control.close(); }
+});
 
 /** Timers and a clock the test drives; each due timer runs and the reads it starts settle before the next fires. */
 class FakeTimers implements ObserverTimers {

@@ -168,7 +168,7 @@ describe("EuclidSwitch", () => {
     expect(button(element, "turnOff").dataset.state).toBe("inactive");
   });
 
-  test("a refused command puts the power buttons in failure with the message in the button's title", async () => {
+  test("a refused command shows its reason beside the controls and on the failing button", async () => {
     client.push(device({ binarySwitch: SWITCH_ON }));
     const element = mount<InstanceType<typeof EuclidSwitch>>("ht-switch");
     button(element, "toggle").click();
@@ -176,6 +176,8 @@ describe("EuclidSwitch", () => {
     await tick();
     expect(button(element, "toggle").dataset.state).toBe("failure");
     expect(button(element, "toggle").getAttribute("title")).toBe("Relay refused the command");
+    expect(part(element, "feedback")!.textContent).toBe("Relay refused the command");
+    expect(part(element, "feedback")!.hidden).toBe(false);
     expect(part(element, "value")!.hidden).toBe(true);
   });
 

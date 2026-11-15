@@ -34,7 +34,11 @@ bun run ht isolate <device-id> off
 ```
 
 Use `bun run site <private-directory> ht …` for another installation. The same
-controls are available on `/network-isolation`. API forms are `GET
+controls are available in each LAN device's **Settings → Network** section and
+on `/network-isolation`. Device settings show the provider-reported VLAN and
+Wi-Fi network, plus the observed HomeTruth internet block. An unreported VLAN
+stays unknown; it is not assumed to be VLAN 1. A requested change is only shown
+as applied when the gateway confirms the block state. API forms are `GET
 /api/isolation`, `GET /api/devices/<id>/isolation` and `POST` to that device
 path with `{"isolated": true}` or `false`.
 

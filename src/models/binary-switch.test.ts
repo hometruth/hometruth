@@ -67,6 +67,17 @@ describe("binary switch schema", () => {
     expect(validators.binarySwitch({ ...document, state: { availability: "offline" } })).toBe(true);
   });
 
+  test("distinguishes commanded and assumed values from observations", () => {
+    for (const [stateSource, timestamp] of [["commanded", "commandedAt"], ["assumed", "assumedAt"]] as const) {
+      const state = { availability: "online", value: "on", stateSource, [timestamp]: document.state.observedAt };
+      expect(validators.binarySwitch({ ...document, state })).toBe(true);
+      expect(validators.binarySwitch({ ...document, state: { ...state, observedAt: document.state.observedAt } })).toBe(false);
+      expect(validators.binarySwitch({ ...document, state: { ...state, [timestamp]: undefined } })).toBe(false);
+      expect(validators.binarySwitch({ ...document, state: { ...state, stateSource: undefined } })).toBe(false);
+      expect(validators.binarySwitch({ ...document, state: { ...state, value: undefined } })).toBe(false);
+    }
+  });
+
   test("rejects a third state, a state without an observation time, and a missing action", () => {
     expect(validators.binarySwitch({ ...document, state: { ...document.state, value: "dimmed" } })).toBe(false);
     expect(validators.binarySwitch({ ...document, state: { availability: "online", value: "on" } })).toBe(false);
@@ -80,6 +91,7 @@ describe("binary switch schema", () => {
       schemaVersion: 1,
       id: "porch-relay-box",
       name: "Porch relay",
+      health: { status: "unknown", detail: "Not checked", checkedAt: null },
       capabilities: { binarySwitch: document },
     })).toBe(true);
   });

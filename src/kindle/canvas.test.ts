@@ -1,10 +1,12 @@
 import { observedKindleState } from "./test-fixture";
-import { expect, test } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Site } from "../site";
 import { createApp } from "../server/app";
+import { StateHub } from "../state/hub";
+import { deviceNode } from "../state/protocol";
 import { createTranslator } from "../ui/i18n";
 import { testPageContext } from "../ui/test-context";
 import { rasterLayoutCss, renderRasterCanvas } from "../ui/kindle-raster";
@@ -17,6 +19,8 @@ import { buildKindleSnapshot } from "./presentation";
 const device = new CompositeDevice();
 const site = new Site([device]);
 const draft = () => canvasDraft(DEFAULT_KINDLE_CONFIG, site.list());
+const hubs: StateHub[] = [];
+afterEach(() => { for (const hub of hubs.splice(0)) hub.stop(); });
 
 test("canvas validation preserves legacy settings and checks IDs and bounds", () => {
   expect(parseKindleConfig(DEFAULT_KINDLE_CONFIG)).not.toHaveProperty("canvas");
@@ -33,7 +37,10 @@ test("canvas validation preserves legacy settings and checks IDs and bounds", ()
 
 test("canvas draft preview uses shared geometry, escapes text, and never saves or invokes devices", async () => {
   const store = new MemoryKindleConfigStore();
-  const app = createApp(undefined, site, undefined, undefined, undefined, undefined, undefined, undefined, undefined, store);
+  const hub = new StateHub(); hubs.push(hub);
+  const app = createApp(undefined, site, undefined, undefined, undefined, undefined, undefined, undefined, undefined, store, undefined, undefined, hub);
+  await hub.data.refresh();
+  await hub.observer.refresh(deviceNode(device.id));
   const before = await store.load();
   const config = draft(); const text = config.canvas.widgets.find(w => w.kind === "text")!;
   text.text = '<img src=x onerror="attack()">'; text.x = 32;
@@ -43,6 +50,7 @@ test("canvas draft preview uses shared geometry, escapes text, and never saves o
   expect(preview.html).toContain("&lt;img"); expect(preview.html).not.toContain("<img src=x");
   expect(preview.css).toContain("#canvas-widget-heading{left:32px;");
   expect(preview.html).toContain('disabled data-kindle-action');
+  expect(preview.frame.widgets.flatMap((widget: { controls: { url: string }[] }) => widget.controls).map((control: { url: string }) => control.url)).toContain('/api/devices/composite-device/capabilities/binarySwitch/controls/turnOn');
   const image = await app.request(preview.frame.imageUrl);
   expect(image.headers.get("content-type")).toBe("image/png");
   const png = Buffer.from(await image.arrayBuffer());

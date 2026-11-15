@@ -51,10 +51,23 @@ export function uiModuleRoutes(options: UiModuleOptions = {}): Hono<AppEnvironme
   const version = options.version ?? assetVersion;
   const transpile = createModuleTranspiler();
   const app = new Hono<AppEnvironment>();
+  let workflowBundle: Promise<string> | undefined;
+  const bundledWorkflow = () => workflowBundle ??= Bun.build({
+    entrypoints: [resolve(root, "workflow-editor/index.ts")], target: "browser", format: "esm", minify: true,
+  }).then(async result => {
+    if (!result.success) throw new Error(result.logs.map(log => log.message).join("; "));
+    return await result.outputs[0]!.text();
+  });
   app.get("/ui/:version/*", async c => {
     const notFound = () => c.text("Not found", 404);
     const match = /^\/ui\/[^/]+\/(.+)$/u.exec(c.req.path);
     const relative = match?.[1];
+    if (relative === "workflow-editor.js") {
+      try { return c.body(await bundledWorkflow(), 200, {
+        "content-type": "text/javascript; charset=utf-8", "x-content-type-options": "nosniff",
+        "cache-control": c.req.param("version") === version() ? "public, max-age=31536000, immutable" : "no-store",
+      }); } catch (error) { workflowBundle = undefined; console.error("Workflow bundle failed", error); return c.text("Workflow editor build failed", 500); }
+    }
     if (!relative || !isAllowedModulePath(relative)) return notFound();
     const file = resolve(root, relative);
     let source: string;

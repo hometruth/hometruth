@@ -63,8 +63,9 @@ export function automaticGroupMembers(
   criteria: AutomaticGroupCriteria,
   assignments?: ReadonlyMap<string, readonly string[]>,
   references: readonly GroupReference[] = [],
+  roomOf: (device: Device) => string | undefined = device => device.room,
 ): string[] {
-  const matches = devices.filter(device => (!criteria.room || device.room === criteria.room)
+  const matches = devices.filter(device => (!criteria.room || roomOf(device) === criteria.room)
     && (!criteria.schemaId || deviceSchemaIds(device).has(criteria.schemaId))
     && (!criteria.tagIds || criteria.tagIds.every(id => assignments?.get(elementKey("device", device.id))?.includes(id))));
   // A fan-out composite stands for its members, so it never joins a group itself:
@@ -92,14 +93,14 @@ const builtIns = [
   ["hubs", "All Hubs", "hub"],
 ] as const;
 
-export function resolveDeviceGroups(devices: readonly Device[], configured: readonly DeviceGroupConfig[], assignments?: ReadonlyMap<string, readonly string[]>, references: readonly GroupReference[] = []): DeviceGroup[] {
+export function resolveDeviceGroups(devices: readonly Device[], configured: readonly DeviceGroupConfig[], assignments?: ReadonlyMap<string, readonly string[]>, references: readonly GroupReference[] = [], roomOf?: (device: Device) => string | undefined): DeviceGroup[] {
   const defaults: DeviceGroup[] = builtIns.map(([id, name, kind]) => {
     const criteria = { schemaId: capabilitySchemas[kind].$ref };
     return { id: `automatic:${id}`, name, criteria, members: automaticGroupMembers(devices, criteria, undefined, references), builtIn: true };
   });
   const sensorCriteria = { schemaId: sensorSchema.$id };
   defaults.push({ id: "automatic:sensors", name: "All Sensors", criteria: sensorCriteria, members: automaticGroupMembers(devices, sensorCriteria, undefined, references), builtIn: true });
-  return [...configured.map(group => ({ ...group, members: group.criteria ? automaticGroupMembers(devices, group.criteria, assignments, references) : [...group.members!] })), ...defaults];
+  return [...configured.map(group => ({ ...group, members: group.criteria ? automaticGroupMembers(devices, group.criteria, assignments, references, roomOf) : [...group.members!] })), ...defaults];
 }
 
 /**

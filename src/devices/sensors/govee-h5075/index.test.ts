@@ -11,6 +11,7 @@ import { Site, registeredView, summaryDetail } from "../../../site";
 import { validators } from "../../../validation";
 import type { GoveeSnapshot } from "../../../vendors/govee/receiver";
 import { createApp } from "../../../server/app";
+import { elementAddress } from "../../../server/test-addresses";
 import { CameraService } from "../../../vendors/tkenpro/camera-service";
 
 const peripheralId = "00000000-0000-0000-0000-000000000001";
@@ -48,7 +49,7 @@ describe("Govee H5075 device", () => {
       async discoverLocal() { return []; },
       async connectCloud() { return { async discover() { return []; } }; },
     }), new Site([device]));
-    const response = await app.request("/api/devices/govee");
+    const response = await app.request(`/api/devices/${await elementAddress(app, "device", "govee")}`);
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(validators.deviceDetailResponse(body)).toBe(true);

@@ -11,6 +11,9 @@ import { Hono } from "hono";
 import type { AppEnvironment } from "./http";
 import { stateRoutes } from "./state-routes";
 import { SseFrameReader } from "./test-sse";
+import { MemorySignalCodeStore } from "../signal-code-store";
+import { MemoryKindleConfigStore } from "../kindle/store";
+import { TagStore } from "../tags/store";
 
 class MemorySwitch extends BinarySwitch {
   constructor(id: string, private state: BinarySwitchState = "off") { super(id); }
@@ -60,6 +63,7 @@ function fixture(options: StateHubOptions = {}) {
   const site = new Site([new SwitchDevice("relay", "Porch relay"), new SwitchDevice("lamp", "Lamp")]);
   const timers = new RecordingTimers();
   const hub = new StateHub({ generation: "g1", timers, random: () => 0.5, ...options });
+  hub.configure({ site, signals: new MemorySignalCodeStore(), kindle: new MemoryKindleConfigStore(), tags: new TagStore() });
   hub.bind({ site, describe: (device) => device.describe(), describeGroup: async () => undefined, describeAutomation: async () => undefined });
   // The route alone: createApp binds and mounts its own hub, and this test drives an injected one with fake timers.
   const app = new Hono<AppEnvironment>();
@@ -76,7 +80,7 @@ describe("GET /api/state/stream", () => {
     const { hub, open } = fixture();
     hub.observer.publish("lamp", object("lamp", "Lamp"));
     hub.observer.publish("relay", object("relay", "Porch relay"));
-    const response = await open("?node=device/relay&node=device/lamp&node=device/unknown&tier=live");
+    const response = await open("?node=porch-relay&node=lamp&tier=live");
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("text/event-stream");
     expect(response.headers.get("cache-control")).toBe("no-store");
@@ -84,7 +88,7 @@ describe("GET /api/state/stream", () => {
     const reader = new SseFrameReader(response);
     const frames = await reader.next(3);
     await reader.close();
-    expect(frames[0]).toEqual({ event: "hello", data: { generation: "g1", tier: "live", nodes: ["device/relay", "device/lamp", "device/unknown"], keepaliveMs: STREAM_LIMITS.keepaliveMs } });
+    expect(frames[0]).toEqual({ event: "hello", data: { generation: "g1", tier: "live", nodes: ["device/relay", "device/lamp"], keepaliveMs: STREAM_LIMITS.keepaliveMs } });
     expect(frames.slice(1).map((frame) => [frame.event, (frame.data as { node: string; version: number }).node])).toEqual([["state", "device/relay"], ["state", "device/lamp"]]);
   });
 
@@ -100,7 +104,7 @@ describe("GET /api/state/stream", () => {
 
   test("retains every node at the requested tier and the observer reads it", async () => {
     const { hub, open, timers } = fixture();
-    const response = await open("?node=device/relay&tier=live");
+    const response = await open("?node=porch-relay&tier=live");
     const reader = new SseFrameReader(response);
     await reader.next(1);
     expect(hub.observer.isRetained(RELAY)).toBe(true);
@@ -115,7 +119,7 @@ describe("GET /api/state/stream", () => {
 
   test("sends exactly one state frame per changed node per flush", async () => {
     const { hub, open } = fixture();
-    const response = await open("?node=device/relay");
+    const response = await open("?node=porch-relay");
     const reader = new SseFrameReader(response);
     expect(await reader.next(1)).toHaveLength(1);
     hub.observer.publish("relay", object("relay", "Porch relay", { status: "online" }));
@@ -133,7 +137,7 @@ describe("GET /api/state/stream", () => {
   test("reports an unchanged poll as an observed frame, not a state frame", async () => {
     const { hub, open } = fixture();
     hub.observer.publish("relay", object("relay", "Porch relay"));
-    const response = await open("?node=device/relay&node=device/lamp");
+    const response = await open("?node=porch-relay&node=lamp");
     const reader = new SseFrameReader(response);
     expect(await reader.next(2)).toHaveLength(2);
     await settle();
@@ -146,7 +150,7 @@ describe("GET /api/state/stream", () => {
 
   test("answers 400 for a malformed request", async () => {
     const { open } = fixture();
-    for (const query of ["?node=relay", "?node=device/relay&tier=fast"]) {
+    for (const query of ["?node=relay", "?node=porch-relay&tier=fast"]) {
       const response = await open(query);
       expect(response.status).toBe(400);
       expect(await response.json()).toMatchObject({ error: { code: "invalid_request" } });
@@ -157,12 +161,12 @@ describe("GET /api/state/stream", () => {
 
   test("over capacity still answers 200: a long retry, hello, an error frame, then the end", async () => {
     const { hub, open } = fixture({ limits: { maxStreams: 1, maxNodes: STREAM_LIMITS.maxNodes } });
-    const first = await open("?node=device/relay");
+    const first = await open("?node=porch-relay");
     const reader = new SseFrameReader(first);
     await reader.next(1);
     expect(hub.streams.count).toBe(1);
 
-    const second = await open("?node=device/lamp&tier=live");
+    const second = await open("?node=lamp&tier=live");
     expect(second.status).toBe(200);
     expect(second.headers.get("content-type")).toBe("text/event-stream");
     const body = await second.text();
@@ -179,7 +183,7 @@ describe("GET /api/state/stream", () => {
   test("aborting the request releases the nodes so the observer stops", async () => {
     const { hub, open, timers } = fixture();
     const controller = new AbortController();
-    const response = await open("?node=device/relay&node=device/lamp", { signal: controller.signal });
+    const response = await open("?node=porch-relay&node=lamp", { signal: controller.signal });
     const reader = new SseFrameReader(response);
     await reader.next(1);
     expect(hub.observer.isRetained(RELAY)).toBe(true);
@@ -196,7 +200,7 @@ describe("GET /api/state/stream", () => {
 
   test("cancelling the body releases the nodes too", async () => {
     const { hub, open } = fixture();
-    const response = await open("?node=device/relay");
+    const response = await open("?node=porch-relay");
     const reader = new SseFrameReader(response);
     await reader.next(1);
     await reader.close();
@@ -207,7 +211,7 @@ describe("GET /api/state/stream", () => {
 
   test("keeps the connection warm with a comment on the injected timer and ends it when the hub closes streams", async () => {
     const { hub, open, timers } = fixture();
-    const response = await open("?node=device/relay");
+    const response = await open("?node=porch-relay");
     const body = response.body!.getReader();
     const decoder = new TextDecoder();
     let text = "";
@@ -238,7 +242,7 @@ test("snapshot returns all cached records or a selected subset without describin
   hub.observer.publish("lamp", object("lamp", "Lamp"));
   const all = await (await app.request("/api/state")).json();
   expect(all.records.map((record: { node: string }) => record.node)).toEqual(["device/relay", "device/lamp"]);
-  const one = await (await app.request("/api/state?node=device%2Flamp")).json();
+  const one = await (await app.request("/api/state?node=lamp")).json();
   expect(one.records.map((record: { node: string }) => record.node)).toEqual(["device/lamp"]);
   expect((await app.request("/api/state?node=bad")).status).toBe(400);
   hub.stop();

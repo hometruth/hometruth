@@ -1,3 +1,4 @@
+import { dinnerBellWav } from "../../workflows/sounds";
 /**
  * Serves clips registered by a Sonos speaker's `say()` control so the
  * speaker can fetch them back over HTTP. No constructor args: this only
@@ -11,6 +12,11 @@ const SAY_CLIP_FILENAME = /^[0-9a-f-]{36}\.wav$/u;
 
 export function sonosMediaRoutes(): Hono<AppEnvironment> {
   const app = new Hono<AppEnvironment>();
+
+  app.get("/local-media/sounds/dinner-bell.wav", () => {
+    const bytes = dinnerBellWav();
+    return new Response(bytes as unknown as BodyInit, { headers: { "Content-Type": "audio/wav", "Content-Length": String(bytes.length), "Cache-Control": "public, max-age=86400" } });
+  });
 
   app.get("/local-media/say/:file", (context) => {
     const file = context.req.param("file");

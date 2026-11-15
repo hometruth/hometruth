@@ -1,7 +1,7 @@
 /**
  * What a token is allowed to do, and to which part of the house.
  *
- * Two independent axes:
+ * Read/write grants have two axes; administrative grants always cover the entire site:
  *
  *   permissions — read, write or admin; each level includes the ones below it.
  *   subject     — which devices that access reaches.
@@ -19,7 +19,7 @@ import { automaticGroupCriteriaSchema, type AutomaticGroupCriteria } from "../sc
 import type { FromSchema } from "json-schema-to-ts";
 
 /**
- * Access levels, from least to most authority, always within the subject.
+ * Access levels, from least to most authority. Admin requires the all-site subject.
  *
  * `read`  state, listings, media and events
  * `write` read plus normal controls: switches, PTZ, treats, IR/RF sends
@@ -28,7 +28,7 @@ import type { FromSchema } from "json-schema-to-ts";
 export const PERMISSIONS = ["read", "write", "admin"] as const;
 export type Permission = typeof PERMISSIONS[number];
 
-/** Higher levels include lower levels; they never widen a token's subject. */
+/** Higher levels include lower levels. Grant validation requires site-wide admin authority. */
 export function permits(held: readonly Permission[], required: Permission): boolean {
   const requiredLevel = PERMISSIONS.indexOf(required);
   return requiredLevel >= 0 && held.some(permission => PERMISSIONS.indexOf(permission) >= requiredLevel);
@@ -71,8 +71,17 @@ export const tokenCreateSchema = {
     expiresAt: { type: "string", format: "date-time" },
   },
   required: ["name", "permissions", "subject"],
+  allOf: [{
+    if: { properties: { permissions: { type: "array", contains: { const: "admin" } } }, required: ["permissions"] },
+    then: { properties: { subject: { type: "object", properties: { all: { const: true } }, required: ["all"] } } },
+  }],
 } as const;
 export type TokenCreate = FromSchema<typeof tokenCreateSchema>;
+
+/** Invalid administrative grants fail closed, including records already stored on disk. */
+export function validAdministrativeScope(grant: { permissions: readonly Permission[]; subject: TokenSubject }): boolean {
+  return !grant.permissions.includes("admin") || ("all" in grant.subject && grant.subject.all === true);
+}
 
 const ajv = new Ajv2020({ strict: true, allErrors: true });
 addFormats(ajv);

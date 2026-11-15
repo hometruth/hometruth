@@ -46,12 +46,12 @@ test("the sign-in page renders with no session and offers nowhere else to go", a
   // stylesheet, so this looks for the element itself.)
   expect(html).not.toContain('<section class="element-tag-panel"');
   // The one hint a person needs on a first start.
-  expect(html).toContain("log");
+  expect(html).toContain("installation administrator");
 });
 
 test("a next that points off-site is discarded", async () => {
   const { app } = fixture();
-  for (const attempt of ["//evil.example/x", "https://evil.example/x", "javascript:alert(1)"]) {
+  for (const attempt of ["//evil.example/x", "/\\evil.example/x", "/\t/evil.example/x", "https://evil.example/x", "javascript:alert(1)", "/sign-in"]) {
     const html = await (await app.request(`/sign-in?next=${encodeURIComponent(attempt)}`, { headers: { accept: "text/html" } })).text();
     expect(html).toContain('value="/"');
     expect(html).not.toContain("evil.example");

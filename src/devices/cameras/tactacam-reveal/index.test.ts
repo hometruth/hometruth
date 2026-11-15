@@ -7,6 +7,7 @@ import { authResponse, credentials, imageResponse, jpeg, photoResponse, samplePh
 import { MODELS } from "../../../registry";
 import { Site } from "../../../site";
 import { createApp } from "../../../server/app";
+import { elementAddress } from "../../../server/test-addresses";
 import { TactacamReveal } from "./index";
 
 function fixture() {
@@ -109,11 +110,12 @@ describe("Tactacam REVEAL device", () => {
   test("serves JPEG bytes through the generic HTTP route without exposing cloud URLs", async () => {
     const f = fixture();
     const app = createApp(undefined, new Site([f.device]));
-    const response = await app.request("/api/cameras/trail/snapshot");
+    const trail = await elementAddress(app, "device", "trail");
+    const response = await app.request(`/api/cameras/${trail}/snapshot`);
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toBe("image/jpeg");
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(jpeg);
-    const detail = await app.request("/api/devices/trail");
+    const detail = await app.request(`/api/devices/${trail}`);
     const text = await detail.text();
     expect(detail.status).toBe(200);
     expect(text).not.toContain("private-example");

@@ -5,7 +5,7 @@ export const eventSchema = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
   $id: "https://hometruth.ai/schemas/event",
   title: "Event",
-  description: "A recorded fact with a timestamp, catalogued type, optional device subject, and a payload in data described by that type's PayloadSchema.",
+  description: "A recorded fact with a timestamp, catalogued type, optional subject (device id or element key), and a payload in data described by that type's PayloadSchema.",
   type: "object",
   additionalProperties: false,
   properties: {

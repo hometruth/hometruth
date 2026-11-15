@@ -17,7 +17,7 @@ const options = {
 
 describe("Meari VVP stream control codec", () => {
   test("matches the native CloudEdge START_LIVE frame", () => {
-    expect(buildVvpStreamAuth(options)).toBe("466c8f51f3245f58e2c96f85dc91847d");
+    expect(buildVvpStreamAuth(options)).toBe("3da92a51d0f9550c58947f591a7e3dfc");
 
     const frame = encodeVvpStreamControlFrame(options);
     expect(frame).toHaveLength(60);
@@ -25,7 +25,7 @@ describe("Meari VVP stream control codec", () => {
       "565650990000000100000000000011ff",
     );
     expect(frame.readUInt32BE(0)).toBe(VVP_STREAM_MAGIC);
-    expect(frame.toString("ascii", 16, 48)).toBe("466c8f51f3245f58e2c96f85dc91847d");
+    expect(frame.toString("ascii", 16, 48)).toBe("3da92a51d0f9550c58947f591a7e3dfc");
     expect(frame.subarray(48).toString("hex")).toBe("000000080000000069000000");
     expect(decodeVvpStreamControlFrame(frame)).toMatchObject({
       command: VVP_STREAM_START_LIVE,

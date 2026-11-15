@@ -21,8 +21,8 @@ test("journal is exclusive, private, and refuses recovery while its owner runs",
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
-for (const signal of ["SIGTERM", "SIGKILL"] as const) {
-  test(`worker restores the mock router when the CLI receives ${signal}`, async () => {
+for (const form of ["source", "bundle"] as const) for (const signal of ["SIGTERM", "SIGKILL"] as const) {
+  test(`worker restores the mock router when the ${form} CLI receives ${signal}`, async () => {
     const directory = await mkdtemp(join(tmpdir(), "wifi-admission-process-"));
     const statePath = join(directory, "router.json");
     await Bun.write(statePath, JSON.stringify({ filterEnabled: true, opened: false }));
@@ -43,7 +43,16 @@ for (const signal of ["SIGTERM", "SIGKILL"] as const) {
       process.stdout.write(JSON.stringify(result));
     `);
     const source = `import { runWifiAdmissionCommand } from ${JSON.stringify(resolve(import.meta.dir, "wifi-admission-command.ts"))}; await runWifiAdmissionCommand({ssid:"Test",timeoutMs:10000,dryRun:false,recover:false});`;
-    const parent = spawn(process.execPath, ["-e", source], { cwd: directory, stdio: "ignore", env: {
+    let argv = ["-e", source];
+    if (form === "bundle") {
+      const result = await Bun.build({ entrypoints: [resolve(import.meta.dir, "../ht/index.ts")], target: "bun", env: "disable" });
+      expect(result.success).toBe(true);
+      expect(result.outputs).toHaveLength(1);
+      const executable = join(directory, "ht");
+      await Bun.write(executable, result.outputs[0]!);
+      argv = [executable, "network", "accept-next", "Test", "--timeout", "10"];
+    }
+    const parent = spawn(process.execPath, argv, { cwd: directory, stdio: "ignore", env: {
       ...process.env, HOMETRUTH_SECRETS: join(directory, "empty-secrets.yml"),
       HOMETRUTH_NETWORK_ADAPTER: "command", HOMETRUTH_NETWORK_COMMAND: JSON.stringify([process.execPath, providerPath]),
       HOMETRUTH_NETWORK_CAPABILITIES: "admission", HOMETRUTH_NETWORK_TARGET: "test-router/site",

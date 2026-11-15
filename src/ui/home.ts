@@ -153,15 +153,6 @@ function renderGroupRow(ctx: PageContext, group: DeviceGroup): string {
     </a></li>`;
 }
 
-/**
- * The root page. It is intentionally empty for now — the devices listing
- * moved to `/devices`, and nothing has taken the root's place yet, so it
- * carries the site chrome and no content of its own.
- */
-export function renderRootPage(ctx: PageContext): string {
-  return renderPage({ ctx, title: "", body: "" });
-}
-
 export function renderHomePage({ ctx, devices, canRescan = false, canGroup = false, deviceGroups = [] }: HomePageOptions): string {
   const { t } = ctx.i18n;
   const { standalone, groups } = partitionDevicesIntoGroups(devices);

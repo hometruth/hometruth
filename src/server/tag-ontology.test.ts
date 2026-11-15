@@ -41,49 +41,100 @@ describe("rooms are tags", () => {
       .toEqual([elementKey("device", "fan"), elementKey("device", "vanity")].sort());
   });
 
-  test("a room has a friendly URL, and the old base64 element key redirects to it", async () => {
+  test("a room has one friendly URL and the old encoded element URL is absent", async () => {
     const { app, tags } = fixture();
     const bathroom = tags.byPair("Master Bathroom", ROOM)!;
-    expect(tagPage(bathroom)).toBe("/tags/room/master-bathroom");
-    expect((await app.request("/tags/room/master-bathroom")).status).toBe(200);
+    expect(tagPage(bathroom)).toBe("/rooms/master-bathroom");
+    expect((await app.request("/rooms/master-bathroom")).status).toBe(200);
+    for (const path of ["/tags/room", "/tags/room/master-bathroom"]) {
+      const removed = await app.request(path);
+      expect(removed.status).toBe(404);
+      expect(removed.headers.get("location")).toBeNull();
+    }
 
-    // The URL that started all this. It still resolves, and lands on the slug.
+    // Removed element routes do not redirect or preserve historical identities.
     const legacy = await app.request(`/elements/${elementKey("room", "Master Bathroom")}`);
-    expect(legacy.status).toBe(301);
-    expect(legacy.headers.get("location")).toBe("/tags/room/master-bathroom");
+    expect(legacy.status).toBe(404);
+    expect(legacy.headers.get("location")).toBeNull();
   });
 
   test("renaming a room keeps every device in it, and changes the URL", async () => {
     const { app, tags } = fixture();
     const before = tags.byPair("Master Bathroom", ROOM)!;
-    const renamed = await app.request(`/api/tags/${before.id}`, {
+    const renamed = await app.request("/api/tags/room-master-bathroom", {
       method: "PATCH", headers: { "content-type": "application/json" },
       body: JSON.stringify({ name: ROOM, value: "Main Bathroom", color: before.color, description: "", revision: before.revision }),
     });
     expect(renamed.status).toBe(200);
-    expect(await json(renamed)).toMatchObject({ page: "/tags/room/main-bathroom" });
+    expect(await json(renamed)).toMatchObject({ page: "/rooms/main-bathroom" });
 
     // The UUID never moved, so nothing was detached by the rename.
     expect(tags.get(before.id)!.value).toBe("Main Bathroom");
     expect(tags.roomOf(elementKey("device", "vanity"))).toBe("Main Bathroom");
     expect(tags.elementsWith(before.id)).toHaveLength(2);
-    expect((await app.request("/tags/room/main-bathroom")).status).toBe(200);
+    expect((await app.request("/rooms/main-bathroom")).status).toBe(200);
+    expect((await app.request("/rooms/master-bathroom")).status).toBe(404);
 
     // Everything that shows a room shows the new one straight away: the room
     // is read from the ontology, not from the `room:` still in the YAML.
     expect(await json(await app.request("/api/rooms"))).toMatchObject({ rooms: ["Kitchen", "Main Bathroom"] });
-    expect(await json(await app.request("/api/devices/vanity"))).toMatchObject({ room: "Main Bathroom" });
+    expect(await json(await app.request("/api/devices/vanity-lights"))).toMatchObject({ room: "Main Bathroom" });
   });
 
   test("a device moves rooms rather than accumulating them", async () => {
     const { app, tags } = fixture();
-    const moved = await app.request("/api/devices/vanity/room", {
+    const moved = await app.request("/api/devices/vanity-lights/room", {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ room: "Kitchen" }),
     });
     expect(moved.status).toBe(200);
     expect(tags.roomOf(elementKey("device", "vanity"))).toBe("Kitchen");
     expect(tags.tagsFor(elementKey("device", "vanity")).filter(tag => tag.name === ROOM)).toHaveLength(1);
+  });
+
+  test("element pages show Room separately from Tags, including on Settings", async () => {
+    const { app, tags } = fixture();
+    const room = tags.byPair("Master Bathroom", ROOM)!;
+    tags.attach(elementKey("device", "vanity"), { value: "dimmable" });
+    for (const path of ["/switches/vanity-lights", "/switches/vanity-lights/settings"]) {
+      const response = await app.request(path);
+      expect(response.status).toBe(200);
+      const html = await response.text();
+      expect(html.match(/<form[^>]*data-room-picker/g)).toHaveLength(1);
+      expect(html).toContain('id="element-room-title">Room</h2>');
+      expect(html).toContain('<option value="room:Master Bathroom" selected>Master Bathroom</option>');
+      expect(html).toContain('>dimmable</a>');
+      expect(html).not.toContain(`data-remove-tag="${room.id}"`);
+    }
+  });
+
+  test("clearing a room through the element editor does not restore the configured room", async () => {
+    const { app, tags, site } = fixture();
+    const key = elementKey("device", "vanity");
+    const room = tags.byPair("Master Bathroom", ROOM)!;
+    tags.attach(key, { value: "dimmable" });
+    expect((await app.request("/api/elements/vanity-lights/tags/room-master-bathroom", { method: "DELETE", headers: { "content-type": "application/json" }, body: "{}" })).status).toBe(200);
+    expect(tags.roomOf(key)).toBeUndefined();
+    expect(await json(await app.request("/api/devices/vanity-lights"))).not.toHaveProperty("room");
+    expect(tags.tagsFor(key).map(tag => tag.value)).toEqual(["dimmable"]);
+    expect(site.automaticGroupMembers({ room: "Master Bathroom" })).toEqual(["fan"]);
+  });
+
+  test("group room edits through the shared editor update the group view and can be cleared", async () => {
+    const site = Site.fromConfig({ ...CONFIG, deviceGroups: [{ id: "bathroom", name: "Bathroom devices", room: "Master Bathroom", members: ["vanity", "fan"] }] });
+    const tags = new TagStore();
+    const app = createApp(undefined, site, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, tags);
+    const key = elementKey("group", "bathroom");
+    const moved = await app.request("/api/elements/bathroom-devices/tags", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: ROOM, value: "Kitchen" }),
+    });
+    expect(moved.status).toBe(200);
+    expect(site.listGroups().find(group => group.id === "bathroom")?.room).toBe("Kitchen");
+    const room = tags.byPair("Kitchen", ROOM)!;
+    expect((await app.request("/api/elements/bathroom-devices/tags/room-kitchen", {
+      method: "DELETE", headers: { "content-type": "application/json" }, body: "{}",
+    })).status).toBe(200);
+    expect(site.listGroups().find(group => group.id === "bathroom")).not.toHaveProperty("room");
   });
 
   test("a tag is not an element: it is not listed, and it cannot be tagged", async () => {

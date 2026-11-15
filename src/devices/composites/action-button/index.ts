@@ -89,17 +89,19 @@ export class ActionButtonDevice extends Device<ActionButtonConfig> {
   readonly model = ACTION_BUTTON;
   readonly capabilities;
   readonly button: DeviceActionButton;
+  override readonly availabilitySources: readonly Device[];
   private readonly target: Device;
 
   constructor(instance: DeviceInstance, config: ActionButtonConfig, services: SiteServices, context: DeviceCreationContext) {
     super(instance.id, instance.name, config);
     this.target = context.device(config.device, { relation: "uses" });
+    this.availabilitySources = [this.target];
     if (config.control) this.target.resolveControl(config.control);
     this.button = new DeviceActionButton(instance.id, config, this.target, services.signalCodes);
     this.capabilities = this.expose({ button: this.button });
   }
 
-  override async probe(): Promise<DeviceIdentity> { return await this.target.probe(); }
+  override async probe(): Promise<DeviceIdentity> { return { model: ACTION_BUTTON.product }; }
   override displayHost(): string { return `action on ${this.target.name}`; }
 }
 

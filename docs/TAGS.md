@@ -23,8 +23,12 @@ elements that can receive tags.
 
 ## URLs and navigation
 
-Unnamed tags use `/tags/<value-slug>`. Named tags use
-`/tags/<name>/<value-slug>`, for example `/tags/room/office`.
+Rooms have a separate index at `/rooms` and individual pages such as
+`/rooms/office`. They are omitted from the Tags list while retaining the same
+tag storage and assignment behavior.
+
+Unnamed tags use `/tags/<value-slug>`. Other named tags use
+`/tags/<name>/<value-slug>`, for example `/tags/floor/upstairs`.
 A rename changes the current page URL. See [URLs](URLS.md) for canonical page
 naming. Display names and page slugs do not replace persistent tag identities.
 

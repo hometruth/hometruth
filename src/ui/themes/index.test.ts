@@ -75,8 +75,8 @@ describe("theme registry", () => {
       expect(theme.entry).toBe(`themes/${key}/index.ts`);
       expect([...theme.components]).toEqual(TAGS);
     }
-    expect(THEME_IDS).toEqual(["euclid", "swiss", "brutal"]);
-    expect(DEFAULT_THEME).toBe("euclid");
+    expect(THEME_IDS).toEqual(["wright", "euclid", "swiss", "brutal"]);
+    expect(DEFAULT_THEME).toBe("wright");
     expect(themeById("swiss")).toBe(THEMES.swiss);
   });
 

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createApp } from "../../../server/app";
+import { elementAddress } from "../../../server/test-addresses";
 import { Site, registeredView, summaryDetail } from "../../../site";
 import { validators } from "../../../validation";
 import { Nrf24BridgeError, type Nrf24BridgeHealth, type Nrf24ListenerState, type Nrf24RadioBridge } from "../../../protocols/nrf24-bridge/client";
@@ -39,7 +40,8 @@ describe("ESP32 nRF24 bridge device", () => {
       bridge: { ...bridge, async startQuietCapture(settings) { calls.push(settings); return quiet; } },
     });
     const app = createApp(undefined, new Site([device], [ESP32_NRF24_BRIDGE]));
-    const send = (body: unknown) => app.request("/api/radio-receivers/tmnt-radio/quiet", {
+    const quietPath = `/api/radio-receivers/${await elementAddress(app, "device", "tmnt-radio")}/quiet`;
+    const send = (body: unknown) => app.request(quietPath, {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
     });
     const response = await send({ wifiOff: true, durationMs: 20000, channel: 40, note: " car off ", profile: "xn297-1000" });

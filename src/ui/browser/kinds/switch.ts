@@ -108,6 +108,7 @@ function wordOf(phase: SwitchPhase, t: Translate): string {
 
 export function switchView(input: SwitchViewInput, t: Translate, time: FormatTime, locale = "en"): SwitchView {
   const phase = phaseOf(input);
+  const state = input.document?.state;
   // A reading (or its absence) colours the mark with the device's own availability; the other phases are the mark.
   const readiness: Readiness = phase === "on" || phase === "off" || phase === "mixed" || phase === "unknown" ? (input.document?.state.availability ?? input.readiness) : phase;
   const powerPending = input.pending !== undefined && input.pending !== "getState";
@@ -130,12 +131,16 @@ export function switchView(input: SwitchViewInput, t: Translate, time: FormatTim
       };
     })
     : [];
+  const reading = readingDetail({ readiness, stale: input.stale, ...(input.fault ? { fault: input.fault } : {}), ...(input.observedAt ? { observedAt: input.observedAt } : {}) }, t, time);
+  const detail = input.fault || phase === "checking" || phase === "gone" ? reading
+    : state?.stateSource === "commanded" && state.commandedAt ? t("switch.commanded", { time: time(state.commandedAt) })
+    : state?.stateSource === "assumed" && state.assumedAt ? t("switch.assumed", { time: time(state.assumedAt) }) : reading;
   return {
     phase,
     availability: readinessAvailability(readiness),
     value: wordOf(phase, t),
     hasOnOffButtons: actions.some((action) => action.id === "turnOn") && actions.some((action) => action.id === "turnOff"),
-    detail: readingDetail({ readiness, stale: input.stale, ...(input.fault ? { fault: input.fault } : {}), ...(input.observedAt ? { observedAt: input.observedAt } : {}) }, t, time),
+    detail,
     gaps: input.group ? switchGaps(input.group, t, locale) : "",
     actions,
     feedback: feedbackOf({ ...(input.error ? { error: input.error } : {}), ...(input.notice ? { notice: input.notice } : {}) }),
@@ -228,6 +233,9 @@ export abstract class HtBinarySwitch extends HtElement<BinarySwitch> {
       gaps.textContent = view.gaps;
       gaps.hidden = !view.gaps;
     }
+    this.writeFeedback(view.feedback.message, view.feedback.tone);
+    const feedback = this.partNamed("feedback");
+    if (feedback) feedback.hidden = !view.feedback.message;
     for (const button of this.actionButtons()) {
       const action = view.actions.find((item) => item.id === button.dataset.action);
       button.hidden = !action;
@@ -238,7 +246,7 @@ export abstract class HtBinarySwitch extends HtElement<BinarySwitch> {
       button.dataset.state = action.state;
       // On/Off read as pressed on the side that is the verified setting; a group split, an unread value, or a command in flight presses neither.
       if (action.id === "turnOn" || action.id === "turnOff") button.setAttribute("aria-pressed", String(action.state === "active"));
-      // The failure itself is the button's state; its sentence is there for a screen reader or a hover, not as a line of standing text.
+      // Keep the reason on the button too, including compact rows without a feedback part.
       if (action.state === "failure" && view.feedback.message) button.setAttribute("title", view.feedback.message);
       else button.removeAttribute("title");
     }

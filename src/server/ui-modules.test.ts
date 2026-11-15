@@ -194,3 +194,13 @@ describe("real browser module graph", () => {
     }
   });
 });
+
+
+test("bundles the workflow editor with self-hosted X6 and ELK without server imports", async () => {
+  const response = await uiModuleRoutes().request("/ui/dev/workflow-editor.js");
+  expect(response.status).toBe(200);
+  const code = await response.text();
+  expect(code).toContain("Workflow studio");
+  expect(code).not.toMatch(/from\s*["'](?:@antv|elkjs|node:)/);
+  expect(code).not.toContain("invokeControl(");
+});

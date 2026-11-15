@@ -84,8 +84,15 @@ test("no schema reference dangles, and none points outside the document", async 
   walk(document.paths);
   walk(schemas);
   expect(references.length).toBeGreaterThan(0);
-  const dangling = [...new Set(references)].filter(reference =>
-    !reference.startsWith("#/components/schemas/") || !(reference.slice("#/components/schemas/".length) in schemas));
+  const dangling = [...new Set(references)].filter(reference => {
+    if (!reference.startsWith("#/components/schemas/")) return true;
+    let value: unknown = document;
+    for (const part of reference.slice(2).split("/").map(p => p.replace(/~1/g, "/").replace(/~0/g, "~"))) {
+      if (!value || typeof value !== "object" || !Object.hasOwn(value, part)) return true;
+      value = (value as Record<string, unknown>)[part];
+    }
+    return false;
+  });
   expect(dangling).toEqual([]);
 });
 
@@ -169,6 +176,10 @@ test("path parameters enumerate this install, with the names to show beside them
   };
   const document = await withApp(app => buildOpenApiDocument({
     routes: routesOf(app), site, origin: "http://localhost:3000", version: "test",
+    addresses: {
+      devices: { porch: "porch-light", relay: "gate-relay" }, groups: { mantle: "mantle-lights" },
+      services: { broker: "mqtt-broker" }, elements: {}, tags: {}, stateNodes: {},
+    },
   }));
 
   const parameter = (path: string, method: string, name: string) => {
@@ -178,13 +189,13 @@ test("path parameters enumerate this install, with the names to show beside them
 
   // A light route enumerates lights, not the whole installation.
   const light = parameter("/api/lights/{id}", "get", "id");
-  expect((light.schema as Record<string, Json>).enum).toEqual(["porch"]);
-  expect(light["x-hometruth-labels"]).toEqual({ porch: "Porch light" });
+  expect((light.schema as Record<string, Json>).enum).toEqual(["porch-light"]);
+  expect(light["x-hometruth-labels"]).toEqual({ "porch-light": "Porch light" });
 
-  expect(((parameter("/api/switches/{id}", "get", "id").schema) as Record<string, Json>).enum).toEqual(["relay"]);
-  expect(((parameter("/api/devices/{id}", "get", "id").schema) as Record<string, Json>).enum).toEqual(["porch", "relay"]);
-  expect(((parameter("/api/device-groups/{id}", "get", "id").schema) as Record<string, Json>).enum).toEqual(["mantle"]);
-  expect(((parameter("/api/services/{id}/events", "get", "id").schema) as Record<string, Json>).enum).toEqual(["broker"]);
+  expect(((parameter("/api/switches/{id}", "get", "id").schema) as Record<string, Json>).enum).toEqual(["gate-relay"]);
+  expect(((parameter("/api/devices/{id}", "get", "id").schema) as Record<string, Json>).enum).toEqual(["porch-light", "gate-relay"]);
+  expect(((parameter("/api/device-groups/{id}", "get", "id").schema) as Record<string, Json>).enum).toEqual(["mantle-lights"]);
+  expect(((parameter("/api/services/{id}/events", "get", "id").schema) as Record<string, Json>).enum).toEqual(["mqtt-broker"]);
   // The raw camera service keys on vendor cloud serials, not on site ids, so
   // that `{id}` is left open rather than filled with a confident wrong answer.
   expect((parameter("/api/camera/devices/{id}/snapshot", "get", "id").schema as Record<string, Json>).enum).toBeUndefined();

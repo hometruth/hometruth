@@ -15,11 +15,11 @@
  * router's admission window — and does not care which install is running.
  */
 import { client, cliToken, UsageError, type Client } from "./client.ts";
-import { elementFrom, invoke, resolve, type Element } from "./elements.ts";
+import { elementFrom, resolve, type Element } from "./elements.ts";
 import { discoverCommands, renderCommands, runElementCommand } from "./element-commands";
 import { renderElement, renderGraphText, renderReadings, renderRecord, table, type GraphResponse } from "./format.ts";
 import { DEFAULT_REBOOT_TIMEOUT_MS } from "./local.ts";
-import { elementKey, isElementKey } from "../tags/identity";
+import type { InventoryElement } from "../client/index";
 
 const HELP = `ht — the HomeTruth client
 
@@ -29,27 +29,27 @@ The install (any HomeTruth you can reach)
   ht ls [kind] [--side schema] [--json]              every element of a kind; devices by default.
                                                      device, group, service, model and schema answer in full;
                                                      every other kind this install publishes comes from the
-                                                     graph — scene, preset, signal, capability, control,
+                                                     inventory — scene, preset, signal, capability, control,
                                                      property, event-type, widget, … and a kind it has none of
                                                      names the kinds it does have
-  ht find <text> [--json]                            every element whose id, name or context matches
-  ht <id> [--json]                                   one element: state and controls
-  ht <id> <command> [value] [options]               e.g. exhaust-fan on, desk-light brightness 50
+  ht find <text> [--json]                            every element whose address, name or context matches
+  ht <address> [--json]                                   one element: state and controls
+  ht <address> <command> [value] [options]               e.g. exhaust-fan on, desk-light brightness 50
                                                      <capability>.<command> when two capabilities share a name
-  ht <id> help                                      every command and option for this element
-  ht watch <id>… [--for <seconds>] [--json]          subscribe to state and print every change
-  ht graph <id> [--depth <n>] [--explain]            what an element is connected to, and one level beyond
+  ht <address> help                                      every command and option for this element
+  ht watch <address>… [--for <seconds>] [--json]          subscribe to state and print every change
+  ht graph <address> [--depth <n>] [--explain]            a focused dependency or model graph
   ht tags [list] [--json]                            every tag, including rooms, and how many elements carry it
   ht tags export                                     the whole ontology as YAML, to keep and to diff
   ht tags import [file]                              restore an export; additive, and never deletes
-  ht enable <id>                                     switch a device back on: controls resume, polling resumes
-  ht disable <id>                                    switch a device off without removing it: no controls, no polling
-  ht reboot <id> [--timeout <seconds>]               reboot a device through the install
-  ht reconnect <id>                                  reconnect managed Wi-Fi and renew DHCP
-  ht rescan [id]                                     find every device (or one) by MAC on any subnet and update its address
+  ht enable <address>                                     switch a device back on: controls resume, polling resumes
+  ht disable <address>                                    switch a device off without removing it: no controls, no polling
+  ht reboot <address> [--timeout <seconds>]               reboot a device through the install
+  ht reconnect <address>                                  reconnect managed Wi-Fi and renew DHCP
+  ht rescan [address]                                     find every device (or one) by MAC on any subnet and update its address
   ht network on|off|kick                             DNS override for the cameras; kick makes them follow it
   ht isolation                                       every device with a LAN address: isolated or not, rule and capture state
-  ht isolate <id> on|off                             cut one device off from the public internet, or release it
+  ht isolate <address> on|off                             cut one device off from the public internet, or release it
   ht tokens [list] [--json]                          every API token: what it may do, what it reaches, when it was last used
   ht tokens issue <name> --can <perms> --for <reach> [--expires <date>]
                                                      issue one and print it once; --can read,write,admin
@@ -104,7 +104,7 @@ export interface HtDependencies {
 
 /**
  * Every first word that is a command; anything else names an element. The set
- * is deliberately short — the fewer words `ht` reserves, the more ids an
+ * is deliberately short — the fewer words `ht` reserves, the more addresses an
  * install is free to use.
  */
 const COMMANDS = new Set(["help", "ls", "find", "graph", "watch", "tags", "enable", "disable",
@@ -242,7 +242,7 @@ async function census(api: Client, json: boolean, stdout: (text: string) => void
     ["services", String(services.services.length), spread(services.services.map((service) => service.availability))],
     ["models", String(models.models.length), ""],
   ]));
-  stdout(`\nht ls           every device\nht <id>         one element, its state and its controls\nht help         everything else\n`);
+  stdout(`\nht ls           every device\nht <address>    one element, its state and its controls\nht help         everything else\n`);
 }
 
 /**
@@ -250,62 +250,68 @@ async function census(api: Client, json: boolean, stdout: (text: string) => void
  * an endpoint of their own are asked for there, because it answers more fully
  * than the graph — live status for a device, group or service, the whole
  * config schema for a model, the whole document for a schema. Everything else
- * comes from the graph, which is where an install publishes the rest of what
+ * comes from inventory, where an install publishes the rest of what
  * it holds, so a kind this client has never heard of still lists.
  */
 async function list(api: Client, kind: string, side: string, emit: (value: unknown, text: () => string) => void): Promise<void> {
+  const inventory = await api.get("/api/inventory") as { elements: InventoryElement[] };
+  const address = (kind: string, id: string) => inventory.elements.find(entry => entry.kind === kind && entry.id === id)?.address ?? "";
   if (kind === "device") {
     const body = await api.get("/api/devices") as { devices: DeviceRow[] };
-    emit(body, () => table([
-      ["ID", "NAME", "WHAT", "WHERE", "STATUS"],
-      ...body.devices.map((device) => [device.id, device.name, device.modelTitle ?? device.model, device.room ?? "",
+    const result = { devices: body.devices.map(device => ({ ...device, address: address("device", device.id) })) };
+    emit(result, () => table([
+      ["ADDRESS", "NAME", "WHAT", "WHERE", "STATUS"],
+      ...result.devices.map((device) => [device.address, device.name, device.modelTitle ?? device.model, device.room ?? "",
         device.detail ? `${device.availability} · ${device.detail}` : device.availability]),
     ]));
     return;
   }
   if (kind === "group") {
     const body = await api.get("/api/device-groups") as { groups: GroupRow[] };
-    emit(body, () => table([
-      ["ID", "NAME", "WHAT", "WHERE", "MEMBERS"],
-      ...body.groups.map((group) => [group.id, group.name, group.criteria ? "automatic" : "selected", group.room ?? "", String(group.members.length)]),
+    const result = { groups: body.groups.map(group => ({ ...group, address: address("group", group.id) })) };
+    emit(result, () => table([
+      ["ADDRESS", "NAME", "WHAT", "WHERE", "MEMBERS"],
+      ...result.groups.map((group) => [group.address, group.name, group.criteria ? "automatic" : "selected", group.room ?? "", String(group.members.length)]),
     ]));
     return;
   }
   if (kind === "service") {
     const body = await api.get("/api/services") as { services: ServiceRow[] };
-    emit(body, () => table([
-      ["ID", "NAME", "STATUS", "DETAIL"],
-      ...body.services.map((service) => [service.id, service.title, service.availability, service.detail]),
+    const result = { services: body.services.map(service => ({ ...service, address: address("service", service.id) })) };
+    emit(result, () => table([
+      ["ADDRESS", "NAME", "STATUS", "DETAIL"],
+      ...result.services.map((service) => [service.address, service.title, service.availability, service.detail]),
     ]));
     return;
   }
   if (kind === "model") {
     const body = await api.get("/api/models") as { models: ModelRow[] };
-    emit(body, () => table([
-      ["ID", "TITLE", "CONNECTION", "CAPABILITIES", "CONFIG"],
-      ...body.models.map((model) => [model.id, model.title, model.connectionTypes.join(" + "), model.capabilities.join(" + "),
+    const result = { models: body.models.map(model => ({ ...model, address: address("model", model.id) })) };
+    emit(result, () => table([
+      ["ADDRESS", "TITLE", "CONNECTION", "CAPABILITIES", "CONFIG"],
+      ...result.models.map((model) => [model.address, model.title, model.connectionTypes.join(" + "), model.capabilities.join(" + "),
         Object.keys(model.configSchema?.properties ?? {}).join(", ")]),
     ]));
     return;
   }
   if (kind === "schema") {
     const body = await api.get("/api/schemas") as { schemas: { key: string; title: string; typeName: string; category: string; schema: { $id?: string } }[] };
-    emit(body, () => table([
-      ["ID", "TITLE", "CATEGORY", "TYPE"],
-      ...body.schemas.map((entry) => [entry.schema.$id ?? entry.key, entry.title, entry.category, entry.typeName]),
+    const result = { schemas: body.schemas.map(entry => ({ ...entry, address: address("schema", entry.schema.$id ?? entry.key) })) };
+    emit(result, () => table([
+      ["ADDRESS", "TITLE", "CATEGORY", "TYPE"],
+      ...result.schemas.map((entry) => [entry.address, entry.title, entry.category, entry.typeName]),
     ]));
     return;
   }
   if (LISTED.has(kind)) throw new Error(`No listing for kind "${kind}"`);
-  const body = await api.get(`/api/graph?side=${encodeURIComponent(side)}&kind=${encodeURIComponent(kind)}`) as { nodes: { id: string; kind: string; name: string; context: string; ids: string[] }[] };
-  if (!body.nodes.length) {
-    const all = await api.get("/api/graph") as { nodes: { kind: string; side: string }[] };
-    const kinds = [...new Set(all.nodes.filter((node) => node.side === side).map((node) => node.kind))].sort();
+  const elements = inventory.elements.filter(entry => entry.kind === kind && entry.side === side);
+  if (!elements.length) {
+    const kinds = [...new Set(inventory.elements.filter(entry => entry.side === side).map(entry => entry.kind))].sort();
     throw new UsageError(`This install publishes no ${side} element of kind "${kind}". It has ${kinds.join(", ")}`);
   }
-  emit(body, () => table([
-    ["KEY", "NAME", "WHERE"],
-    ...body.nodes.map((node) => [node.ids.join("/"), node.name, node.context]),
+  emit({ elements }, () => table([
+    ["ADDRESS", "NAME", "WHERE"],
+    ...elements.map(entry => [entry.address, entry.name, entry.context]),
   ]));
 }
 
@@ -355,20 +361,22 @@ export async function runHt(argv: readonly string[], dependencies: HtDependencie
         const [text] = parsed.positionals;
         if (!text) throw new UsageError("find needs something to look for");
         const needle = text.toLowerCase();
-        const body = await api.get("/api/graph") as { nodes: { id: string; side: string; kind: string; name: string; context: string; ids: string[] }[] };
-        const hits = body.nodes.filter((node) =>
-          node.name.toLowerCase().includes(needle) || node.context.toLowerCase().includes(needle) || node.ids.some((id) => id.toLowerCase().includes(needle)));
+        const body = await api.get("/api/inventory") as { elements: InventoryElement[] };
+        const hits = body.elements.filter(entry => [entry.address, entry.name, entry.context].some(value => value.toLowerCase().includes(needle)));
         emit({ matches: hits }, () => hits.length
-          ? table([["KEY", "KIND", "NAME", "WHERE"], ...hits.map((node) => [node.ids.join("/"), node.kind, node.name, node.context])])
+          ? table([["ADDRESS", "KIND", "NAME", "WHERE"], ...hits.map(entry => [entry.address, entry.kind, entry.name, entry.context])])
           : `Nothing here matches "${text}".\n`);
         return 0;
       }
       case "graph": {
         const [id] = parsed.positionals;
-        if (!id) throw new UsageError("graph needs an element id or key; try a device id");
+        if (!id) throw new UsageError("graph needs an element address; run ht ls or ht find");
         const depth = parsed.flags.get("depth");
-        const key = isElementKey(id) ? id : elementKey("device", id);
-        const body = await api.get(`/api/graph/${encodeURIComponent(key)}?depth=${encodeURIComponent(typeof depth === "string" ? depth : "2")}`) as GraphResponse;
+        const element = await resolve(api, id, false);
+        const entry = element.body as InventoryElement;
+        const view = entry.side === "instance" ? "dependencies" : "model";
+        const query = new URLSearchParams({ view, focus: entry.address, depth: typeof depth === "string" ? depth : "2" });
+        const body = await api.get(`/api/graph/scene?${query}`) as GraphResponse;
         emit(body, () => renderGraphText(body, parsed.flags.has("explain")));
         return 0;
       }
@@ -399,28 +407,28 @@ export async function runHt(argv: readonly string[], dependencies: HtDependencie
       case "enable":
       case "disable": {
         const [id] = parsed.positionals;
-        if (!id) throw new UsageError(`${parsed.command} needs a device id`);
-        const enabled = await api.request("POST", `/api/devices/${encodeURIComponent(id)}/${parsed.command}`) as boolean;
+        if (!id) throw new UsageError(`${parsed.command} needs a device address`);
+        const enabled = await api.request("POST", await deviceOperation(api, id, parsed.command)) as boolean;
         emit(enabled, () => `${id} is now ${enabled ? "enabled" : "disabled"}\n`);
         return 0;
       }
       case "reboot": {
         const [target] = parsed.positionals;
-        if (!target) throw new UsageError("reboot needs a device id (or an IP address with --direct)");
+        if (!target) throw new UsageError("reboot needs a device address (or an IP address with --direct)");
         const timeout = timeoutMs(parsed.flags);
         if (parsed.flags.has("direct") || parsed.flags.has("locate")) {
           const direct = dependencies.directReboot ?? (await import("./local.ts")).directReboot;
           stdout(`${await direct(target, { locateOnly: parsed.flags.has("locate"), timeoutMs: timeout })}\n`);
           return 0;
         }
-        const body = await api.post(`/api/devices/${encodeURIComponent(target)}/reboot`, {}, timeout + 60_000) as { object: { status?: string } };
+        const body = await api.post(await deviceOperation(api, target, "reboot"), {}, timeout + 60_000) as { object: { status?: string } };
         emit(body, () => `Rebooted ${target}; status ${body.object.status ?? "unknown"}\n`);
         return 0;
       }
       case "reconnect": {
         const [id] = parsed.positionals;
-        if (!id) throw new UsageError("reconnect needs a device id");
-        const body = await api.post(`/api/devices/${encodeURIComponent(id)}/network/reconnect`, {}) as { message?: string };
+        if (!id) throw new UsageError("reconnect needs a device address");
+        const body = await api.post(await deviceOperation(api, id, "network/reconnect"), {}) as { message?: string };
         emit(body, () => `${body.message ?? `Reconnect requested for ${id}`}\n`);
         return 0;
       }
@@ -428,7 +436,7 @@ export async function runHt(argv: readonly string[], dependencies: HtDependencie
         const [id] = parsed.positionals;
         type Result = { deviceId: string; outcome: string; address: string; currentAddress?: string; detail: string };
         const body = id
-          ? await api.post(`/api/devices/${encodeURIComponent(id)}/network/rescan`, {}, 120_000) as { message: string; result: Result }
+          ? await api.post(await deviceOperation(api, id, "network/rescan"), {}, 120_000) as { message: string; result: Result }
           : await api.post("/api/network/rescan", {}, 120_000) as { message: string; results: Result[] };
         emit(body, () => {
           const results = "results" in body ? body.results : [body.result];
@@ -471,8 +479,8 @@ export async function runHt(argv: readonly string[], dependencies: HtDependencie
       }
       case "isolate": {
         const [id, action] = parsed.positionals;
-        if (!id || (action !== "on" && action !== "off")) throw new UsageError("isolate needs a device id and on or off");
-        const body = await api.post(`/api/devices/${encodeURIComponent(id)}/isolation`, { isolated: action === "on" }, 120_000) as { message?: string };
+        if (!id || (action !== "on" && action !== "off")) throw new UsageError("isolate needs a device address and on or off");
+        const body = await api.post(await deviceOperation(api, id, "isolation"), { isolated: action === "on" }, 120_000) as { message?: string };
         emit(body, () => `${body.message ?? "done"}\n`);
         return 0;
       }
@@ -550,7 +558,7 @@ export async function runHt(argv: readonly string[], dependencies: HtDependencie
               body.expiresAt = at.toISOString();
             }
             const { validateTokenCreate } = await import("../auth/model");
-            if (!validateTokenCreate(body)) throw new UsageError("tokens issue needs read, write or admin access and one valid --for scope");
+            if (!validateTokenCreate(body)) throw new UsageError("tokens issue needs read/write with a valid --for scope, or admin with --for all");
             const issued = await api.post("/api/tokens", body) as TokenRow & { token: string };
             // The only time this string exists outside the install.
             emit(issued, () => `${issued.token}\n\nCopy it now; it is not stored and cannot be shown again.\nIt can do ${issued.permissions.join(", ")} on ${issued.reaches}.\n`);
@@ -610,6 +618,16 @@ export async function runHt(argv: readonly string[], dependencies: HtDependencie
   }
 }
 
+/** Global conveniences select the same published operation as an element command. */
+async function deviceOperation(api: Client, address: string, suffix: string): Promise<string> {
+  const element = await resolve(api, address, false);
+  if (element.kind !== "device") throw new UsageError(`${element.name} is not a device`);
+  const path = `/api/devices/${encodeURIComponent(element.address!)}/${suffix}`;
+  const commands = await discoverCommands(api, element);
+  if (!commands.some(command => command.method === "POST" && command.path === path)) throw new UsageError(`${element.name} does not offer ${suffix}`);
+  return path;
+}
+
 /** Resolve the element's own command vocabulary before dispatching an action. */
 async function elementCommand(
   api: Client,
@@ -620,28 +638,9 @@ async function elementCommand(
 ): Promise<number> {
   const [command, rawValue, ...extra] = parsed.positionals;
   if (extra.length) throw new UsageError(`A command takes one value: ht ${id} <command> [value] [options]`);
-  // Device configuration commands must work even when the device is disabled
-  // or unreachable. Resolve their identity without asking for a live reading.
-  const configurationCommand = command === "enabled" || command === "enable" || command === "disable";
-  const element = await resolve(api, configurationCommand && !isElementKey(id) ? elementKey("device", id) : id);
+  const element = await resolve(api, id, command === undefined && !parsed.flags.has("help"));
   if (command === undefined && !parsed.flags.has("help")) {
     emit(element.body, () => renderElement(element));
-    return 0;
-  }
-  const control = element.controls.find(control => control.name === command);
-  if (control && !parsed.flags.has("help")) {
-    for (const flag of parsed.flags.keys()) if (!["json", "confirm"].includes(flag)) throw new UsageError(`Unknown option --${flag}. Use ht ${id} help`);
-    const confirmation = parsed.flags.get("confirm");
-    if (confirmation !== undefined && confirmation !== true && confirmation !== "true" && confirmation !== "false") throw new UsageError("--confirm takes true or false");
-    const body = await invoke(api, element, control.id, parseValue(rawValue), confirmation === true || confirmation === "true");
-    emit(body, () => {
-      if (element.kind === "service") {
-        const done = body as { detail?: string };
-        return `${command} on ${element.id}: ${done.detail ?? "done"}\n`;
-      }
-      const after = asElement(body, element.kind);
-      return `${command} sent to ${after?.name ?? id}${after ? ` · ${after.status}` : ""}\n${after ? renderReadings(after) : ""}`;
-    });
     return 0;
   }
   const commands = await discoverCommands(api, element);
@@ -657,7 +656,14 @@ async function elementCommand(
     try { for await (const chunk of result) stdout(decoder.decode(chunk, { stream: true })); }
     catch (error) { if (!(error instanceof Error) || !["TimeoutError", "AbortError"].includes(error.name)) throw error; }
     stdout(decoder.decode());
-  } else emit(result, () => typeof result === "string" ? result + "\n" : JSON.stringify(result, null, 2) + "\n");
+  } else emit(result, () => {
+    if (found.method === "POST" && /\/(?:controls|actions)\//.test(found.path)) {
+      const after = asElement(result, element.kind);
+      const detail = typeof result === "object" && result !== null && "detail" in result ? String(result.detail) : "";
+      return `${command} sent to ${after?.name ?? element.name}${after?.status ? ` · ${after.status}` : detail ? ` · ${detail}` : ""}\n${after ? renderReadings(after) : ""}`;
+    }
+    return typeof result === "string" ? result + "\n" : JSON.stringify(result, null, 2) + "\n";
+  });
   return 0;
 }
 
@@ -684,12 +690,14 @@ async function watch(
   outer?: AbortSignal,
 ): Promise<number> {
   const ids = parsed.positionals;
-  if (!ids.length) throw new UsageError("watch needs at least one element id");
+  if (!ids.length) throw new UsageError("watch needs at least one element address");
   const nodes: string[] = [];
+  const addresses = new Map<string, string>();
   for (const id of ids) {
-    const found = await resolve(api, id);
+    const found = await resolve(api, id, false);
     if (!found.node) throw new UsageError(`${found.name} is a ${found.kind}; only devices and groups publish state to subscribe to`);
     nodes.push(found.node);
+    if (found.stateNode) addresses.set(found.stateNode, found.node);
   }
   const controller = new AbortController();
   outer?.addEventListener("abort", () => controller.abort(), { once: true });
@@ -711,9 +719,10 @@ async function watch(
       }
       if (frame.event === "hello") {
         const hello = frame.data as { nodes?: string[]; generation?: string };
-        const missing = nodes.filter((node) => !(hello.nodes ?? []).includes(node));
+        const watching = (hello.nodes ?? []).map(node => addresses.get(node) ?? node);
+        const missing = nodes.filter((node) => !watching.includes(node));
         if (missing.length) stderr(`Not watching ${missing.join(", ")}: this token does not reach them\n`);
-        stdout(`watching ${(hello.nodes ?? []).join(", ")}\n`);
+        stdout(`watching ${watching.join(", ")}\n`);
         continue;
       }
       if (frame.event === "error") {
@@ -721,7 +730,10 @@ async function watch(
         stderr(`${problem.message ?? "the stream ended"}\n`);
         return 1;
       }
-      if (frame.event === "state") stdout(renderRecord(frame.data));
+      if (frame.event === "state") {
+        const record = frame.data as { node?: string };
+        stdout(renderRecord({ ...record, node: record.node ? addresses.get(record.node) ?? record.node : undefined }));
+      }
     }
   } catch (error) {
     if (!controller.signal.aborted) throw error;
@@ -733,5 +745,9 @@ async function watch(
 }
 
 if (import.meta.main) {
-  process.exitCode = await runHt(Bun.argv.slice(2));
+  if (Bun.argv[2] === "--wifi-admission-worker") {
+    await (await import("../network/wifi-admission-command")).runWifiAdmissionWorker();
+  } else {
+    process.exitCode = await runHt(Bun.argv.slice(2));
+  }
 }

@@ -57,6 +57,15 @@ devices:
     model: airgradient-one
     config:
       host: 192.168.50.80
+  # Enphase IQ Gateway (Envoy), firmware 7+. Read-only solar, consumption, grid and IQ Battery readings.
+  # Secrets: devices.solar.token, or devices.solar.username + devices.solar.password (see docs/ENPHASE.md).
+  - id: solar
+    name: Solar
+    model: enphase-envoy
+    config:
+      host: 192.168.50.70
+      # serialNumber: "202500000001"   # checked against /info before any token is sent
+      # unitReadings: true             # one reading per microinverter and IQ Battery
   - id: kitchen-camera
     name: Kitchen pet camera
     model: tkenpro-2k-pet-camera-treat-dispenser
@@ -69,6 +78,30 @@ devices:
     model: shelly-plus-1
     config:
       host: 192.168.50.228
+
+  - id: desk-plug
+    name: Desk plug
+    model: tplink-kasa-plug
+    config:
+      host: 192.168.50.60
+      # EP10, EP40, KP115 or HS300; the device must report the same model.
+      model: KP115
+
+  - id: desk-plug-energy
+    name: Desk plug energy
+    model: tplink-kasa-energy-meter
+    config:
+      # A KP115, or one HS300 outlet; EP10 and EP40 have no meter.
+      plug: desk-plug
+
+  - id: porch-outlet-1
+    name: Porch outlet 1
+    model: tplink-kasa-plug
+    config:
+      host: 192.168.50.61
+      model: EP40
+      # Zero-based: EP40 0-1, HS300 0-5. Omit on single-outlet plugs.
+      outlet: 0
 
   - id: desk-keylight
     name: Desk Key Light Air
@@ -268,3 +301,56 @@ devices:
     # Steplight, Floodlight. The account says which one it actually is.
     model: ring-smart-light
     config: { bridge: ring-bridge, zid: "REPLACE_WITH_FIXTURE_ZID" }
+  # Rachio sprinklers, through Rachio's cloud (no local API), metered at ~1,700
+  # calls/day. Store the key with `ht secrets set vendors.rachio.apiKey`, then run
+  # `bun src/vendors/rachio/discover.ts` for the deviceId and zone numbers.
+  - id: sprinklers
+    name: Sprinklers
+    model: rachio-controller
+    config: { deviceId: "REPLACE_WITH_RACHIO_DEVICE_ID" }
+  - id: front-lawn
+    name: Front lawn
+    room: Garden
+    # Turning a zone on waters it (1..180 minutes; defaultMinutes when none given).
+    model: rachio-zone
+    config: { controller: sprinklers, zoneNumber: 1, defaultMinutes: 10 }
+  - id: sprinklers-rain-delay
+    name: Rain delay
+    model: rachio-rain-delay
+    config: { controller: sprinklers, defaultHours: 24 }
+  # Whisker Litter-Robot 4, through Whisker's cloud. Store the account with
+  # `ht secrets set vendors.whisker.username` and `vendors.whisker.password`.
+  # Buttons move the globe.
+  - id: litter-box
+    name: Litter box
+    model: litter-robot-4
+    config: { serial: LR4C000001 }
+  - id: litter-box-night-light
+    name: Litter box night light
+    model: litter-robot-4-switch
+    config: { robot: litter-box, control: nightLight }
+  - id: litter-box-clean
+    name: Start clean cycle
+    model: litter-robot-4-button
+    config: { robot: litter-box, action: cleanCycle }
+  # Roborock robot vacuum, local protocol 1.0 (TCP 58867). Store the local key
+  # with `ht secrets set devices.hall-vacuum.localKey`. Each action is its own button.
+  - id: hall-vacuum
+    name: Hall vacuum
+    model: roborock-vacuum
+    config: { host: 192.168.50.75, duid: SyntheticDuid0001 }
+  - id: hall-vacuum-start
+    name: Start cleaning
+    model: roborock-vacuum-action
+    config: { vacuum: hall-vacuum, action: start }
+  - id: hall-vacuum-dock
+    name: Return to dock
+    model: roborock-vacuum-action
+    config: { vacuum: hall-vacuum, action: dock }
+  # Requires a configured UniFi zone-based network adapter. On permits internet;
+  # Off pauses these synthetic client identities while preserving other restrictions.
+  - id: study-internet
+    name: Study internet
+    model: internet-access-switch
+    config:
+      macs: ['02:00:00:00:00:11', '02:00:00:00:00:22']

@@ -144,19 +144,19 @@ test("switch state needs only read permission and respects device scope", async 
   expect((await app.request("/api/switches/kettle/state")).status).toBe(401);
 });
 
-test("enabled is readable while enable and disable require scoped admin access", async () => {
+test("enabled is readable while enable and disable require site admin access", async () => {
   const reader = issue({ name: "kitchen reader", permissions: ["read"], subject: { criteria: { room: "Kitchen" } } });
   const enabled = await app.request("/api/devices/kettle/enabled", { headers: bearer(reader) });
   expect(enabled.status).toBe(200);
   expect(await enabled.json()).toBe(true);
   expect((await app.request("/api/devices/lamp/enabled", { headers: bearer(reader) })).status).toBe(403);
   expect((await app.request("/api/devices/kettle/enabled")).status).toBe(401);
-  const admin = issue({ name: "kitchen admin", permissions: ["admin"], subject: { criteria: { room: "Kitchen" } } });
+  const admin = issue({ name: "site admin", permissions: ["admin"], subject: { all: true } });
   const writer = issue({ name: "kitchen writer", permissions: ["write"], subject: { criteria: { room: "Kitchen" } } });
   for (const action of ["enable", "disable"]) {
     expect((await app.request(`/api/devices/kettle/${action}`, { method: "POST", headers: json(reader) })).status).toBe(403);
     expect((await app.request(`/api/devices/kettle/${action}`, { method: "POST", headers: json(writer) })).status).toBe(403);
-    expect((await app.request(`/api/devices/lamp/${action}`, { method: "POST", headers: json(admin) })).status).toBe(403);
+    expect((await app.request(`/api/devices/lamp/${action}`, { method: "POST", headers: json(writer) })).status).toBe(403);
     // This fixture has no config writer: authorization succeeds, then the write is unsupported.
     expect((await app.request(`/api/devices/kettle/${action}`, { method: "POST", headers: json(admin) })).status).toBe(409);
   }
@@ -202,8 +202,8 @@ test("a subject naming an existing group reaches exactly that group's members", 
 });
 
 test("a narrow token cannot reach site-wide routes even holding the verb", async () => {
-  const kitchenAdmin = issue({ name: "kitchen admin", permissions: ["admin"], subject: { criteria: { room: "Kitchen" } } });
-  expect((await app.request("/api/devices/kettle/name", { method: "POST", headers: json(kitchenAdmin), body: JSON.stringify({ name: "Kettle" }) })).status).not.toBe(403);
+  const kitchenAdmin = issue({ name: "kitchen writer", permissions: ["write"], subject: { criteria: { room: "Kitchen" } } });
+  expect((await app.request("/api/devices/kettle/name", { method: "POST", headers: json(kitchenAdmin), body: JSON.stringify({ name: "Kettle" }) })).status).toBe(403);
   // The ontology decides what "Kitchen" means, so a kitchen-scoped token must not edit it.
   expect((await app.request("/api/tags", { method: "POST", headers: json(kitchenAdmin), body: JSON.stringify({ name: "room", value: "Anywhere" }) })).status).toBe(403);
   // Nor may it mint itself a wider token.
@@ -216,18 +216,18 @@ test("a listing shows only what the token reaches", async () => {
   expect(body.devices.map(device => device.id)).toEqual(["kettle"]);
 });
 
-test("a single-device admin can enable and disable only that device", async () => {
+test("site administration enables devices while scoped write cannot change configuration", async () => {
   const writes: { id: string; enabled: boolean }[] = [];
   const site = new Site([new SwitchDevice("kettle", "Kettle"), new SwitchDevice("lamp", "Lamp")]);
   const configured = createApp(undefined, site, undefined, undefined, undefined, undefined, undefined, {
     add: async () => {}, addAll: async () => {}, rename: async () => {},
     setEnabled: async (id, enabled) => { writes.push({ id, enabled }); },
   }, undefined, undefined, undefined, undefined, undefined, tokens);
-  const admin = issue({ name: "Kettle administrator", permissions: ["admin"], subject: { device: "kettle" } });
+  const admin = issue({ name: "Site administrator", permissions: ["admin"], subject: { all: true } });
   const writer = issue({ name: "Kettle operator", permissions: ["write"], subject: { device: "kettle" } });
   for (const [action, expected] of [["disable", false], ["enable", true]] as const) {
     expect((await configured.request(`/api/devices/kettle/${action}`, { method: "POST", headers: json(writer) })).status).toBe(403);
-    expect((await configured.request(`/api/devices/lamp/${action}`, { method: "POST", headers: json(admin) })).status).toBe(403);
+    expect((await configured.request(`/api/devices/lamp/${action}`, { method: "POST", headers: json(writer) })).status).toBe(403);
     expect(writes).toHaveLength(expected ? 1 : 0);
     const changed = await configured.request(`/api/devices/kettle/${action}`, { method: "POST", headers: json(admin) });
     expect(changed.status).toBe(200);
@@ -236,11 +236,11 @@ test("a single-device admin can enable and disable only that device", async () =
     expect(await enabled.json()).toBe(expected);
   }
   expect(writes).toEqual([{ id: "kettle", enabled: false }, { id: "kettle", enabled: true }]);
-  expect((await configured.request("/api/tokens", { headers: bearer(admin) })).status).toBe(403);
-  expect((await configured.request(`/api/elements/${elementKey("device", "kettle")}`, { headers: bearer(admin) })).status).toBe(200);
-  expect((await configured.request(`/api/elements/${elementKey("device", "lamp")}`, { headers: bearer(admin) })).status).toBe(403);
+  expect((await configured.request("/api/tokens", { headers: bearer(admin) })).status).toBe(200);
+  expect((await configured.request("/api/elements/kettle", { headers: bearer(admin) })).status).toBe(200);
+  expect((await configured.request("/api/elements/lamp", { headers: bearer(writer) })).status).toBe(403);
   const listed = await (await configured.request("/api/devices", { headers: bearer(admin) })).json() as { devices: { id: string }[] };
-  expect(listed.devices.map(device => device.id)).toEqual(["kettle"]);
+  expect(listed.devices.map(device => device.id).sort()).toEqual(["kettle", "lamp"]);
 });
 
 test("issuing a token validates its access level and device scope", async () => {
@@ -250,7 +250,8 @@ test("issuing a token validates its access level and device scope", async () => 
   });
   for (const removed of ["control", "media", "events"]) expect((await create([removed])).status).toBe(400);
   expect((await create(["admin"], "missing")).status).toBe(400);
-  const response = await create(["admin"]);
+  expect((await create(["admin"])).status).toBe(400);
+  const response = await create(["write"]);
   expect(response.status).toBe(201);
   const issued = await response.json() as { token: string };
   expect((await app.request("/api/devices/kettle/enabled", { headers: bearer(issued.token) })).status).toBe(200);
@@ -271,15 +272,14 @@ test("signing in exchanges the token for a cookie that works on its own", async 
   const cookie = response.headers.get("set-cookie") ?? "";
   expect(cookie).toContain("ht_session=");
   expect(cookie).toContain("HttpOnly");
-  expect((await app.request("/api/devices", { headers: { cookie: `ht_session=${token}` } })).status).toBe(200);
+  expect((await app.request("/api/devices", { headers: { cookie: cookie.split(";")[0]! } })).status).toBe(200);
 });
 
-test("a token in the URL is taken once, moved to the cookie and stripped", async () => {
-  const token = issue({ name: "kindle", permissions: ["read"], subject: { all: true } });
-  const response = await app.request(`/devices?token=${encodeURIComponent(token)}`, { headers: { accept: "text/html" } });
-  expect(response.status).toBe(303);
-  expect(response.headers.get("location")).toBe("/devices");
-  expect(response.headers.get("set-cookie") ?? "").toContain("ht_session=");
+test("a token in the URL cannot authenticate", async () => {
+  const token = issue({ name: "browser", permissions: ["read"], subject: { all: true } });
+  const response = await app.request(`/api/devices?token=${encodeURIComponent(token)}`);
+  expect(response.status).toBe(401);
+  expect(response.headers.get("set-cookie")).toBeNull();
 });
 
 test("a configured HTTPS proxy origin permits same-origin sign-in and sets secure cookies", async () => {

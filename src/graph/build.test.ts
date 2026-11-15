@@ -125,7 +125,7 @@ describe("schema graph", () => {
     expect(defined.filter((node) => node.kind === "control").map((node) => node.name).sort())
       .toEqual(["getState", "toggle", "turnOff", "turnOn"]);
     expect(defined.filter((node) => node.kind === "property").map((node) => node.name).sort())
-      .toEqual(["availability", "observedAt", "value"]);
+      .toEqual(["assumedAt", "availability", "commandedAt", "observedAt", "stateSource", "value"]);
   });
 
   test("a model implements its capabilities and describes itself with an object schema", async () => {
@@ -182,7 +182,9 @@ describe("instance graph", () => {
 
     // A room is the tag `room = Lounge`, on the tag side of the graph.
     const room = tagNode({ name: ROOM, value: "Lounge" });
-    expect(graph.node(room)).toMatchObject({ side: "tag", kind: "tag", name: "Lounge" });
+    expect(graph.node(room)).toMatchObject({ side: "tag", kind: "tag", name: "Lounge", page: "/rooms/lounge" });
+    expect(graph.node(tagNameNode(ROOM))?.page).toBe("/rooms");
+    expect(graph.byPage("/rooms")?.id).toBe(catalogNode("rooms"));
     expect(tags.byPair("Lounge", ROOM)).toBeDefined();
 
     // `tagged` is the one relation that crosses out of the tag side.

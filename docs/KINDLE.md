@@ -58,23 +58,14 @@ just open the URL. The rest of this section applies if you have set
 `HOMETRUTH_TRUST_LAN=off`, or want the Kindle held to a narrower scope than the
 rest of the LAN (a presented token always wins over the network it comes from).
 
-The Kindle's browser cannot reasonably be asked to paste an API token, so give
-it one in the URL, once:
-
-```sh
-ht tokens issue "Kindle dashboard" --can write --for all
-```
-
-Open `http://<hometruth-server>:3000/kindle?token=ht_…` on the Kindle the first
-time. HomeTruth moves the token into an `HttpOnly` cookie and redirects to the
-plain `/kindle`, so bookmark the page *after* it lands — the token does not
-stay in the URL, the history, or the bookmark. The dashboard reads and drives
-whatever its widgets show, so it needs `write` over every device today;
-narrowing it is listed as unfinished in
-[docs/API_TOKENS.md](API_TOKENS.md). Reload
-an already-open older dashboard using the browser's Reload command once to
-load the new client script; the dashboard's Refresh button updates data but
-does not replace an older script.
+Browser authentication requires trusted HTTPS and sign-in at `/sign-in`. Use a
+dedicated token with `write` over every device for the dashboard. HomeTruth
+keeps an independent, revocable browser session after sign-in; credentials in
+URLs do not authenticate. The Kindle must support the installation's TLS
+certificate and trust its issuer. A browser that cannot satisfy those
+requirements cannot use authenticated sign-in; do not bypass certificate
+verification to work around it. Passkey support on Kindle browsers is unverified.
+See [API tokens](API_TOKENS.md) for session lifetimes and recovery.
 
 ## Capability presentation
 

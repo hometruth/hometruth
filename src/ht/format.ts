@@ -1,11 +1,10 @@
 /**
  * How `ht` puts an answer on a terminal: a padded table, an element, and the
- * ego graph. Nothing here asks the install anything — it renders what
+ * graph scene. Nothing here asks the install anything — it renders what
  * `elements.ts` already read, so `--json` and the text below always describe
  * the same answer.
  */
-import { inverseOf, type GraphEdge, type GraphNode, type RelationName } from "../graph/types";
-import { RELATION_ORDER } from "../graph/ego";
+import type { GraphScene } from "../graph/scene";
 import type { Element } from "./elements.ts";
 
 /** A moment in the reader's own time, because the reader is in the house, not in UTC. */
@@ -22,11 +21,12 @@ export function table(rows: readonly (readonly string[])[]): string {
 /**
  * One element: what it is, what it reads right now, and what may be done to
  * it. The state comes before the controls because the answer to "what is it
- * doing" is usually why someone typed the id.
+ * doing" is usually why someone typed its address.
  */
 export function renderElement(element: Element): string {
   const lines: string[] = [
     `${element.name}  ${[element.kind, element.what, element.status].filter(Boolean).join(" · ")}`,
+    ...(element.address ? [`address  ${element.address}`] : []),
   ];
   if (element.facts.length) lines.push(element.facts.join(" · "));
   const readings = renderReadings(element);
@@ -84,67 +84,26 @@ export function renderRecord(data: unknown): string {
   return `${head}  ${record.value?.status ?? "unknown"}${parts.length ? `  ${parts.join(" · ")}` : ""}\n`;
 }
 
-export interface GraphResponse {
-  readonly focus: string;
-  readonly depth: number;
-  readonly nodes: readonly { readonly node: GraphNode; readonly depth: number; readonly via?: RelationName }[];
-  readonly edges: readonly GraphEdge[];
-  readonly truncated: readonly { readonly from: string; readonly relation: string; readonly hidden: number }[];
-}
+/** Geometry is optional to the text renderer; the scene is shared with the web graph. */
+export type GraphResponse = GraphScene;
 
-/**
- * The ego view as text: the focus, then each relation and what it reaches,
- * indented by how far away it is. `--explain` adds where each edge came from,
- * which is how you tell a recorded reference from a derived one.
- */
+/** Print every displayed connection once, including convergence and cycles. */
 export function renderGraphText(body: GraphResponse, explain: boolean): string {
-  const byId = new Map(body.nodes.map((entry) => [entry.node.id, entry]));
-  const glyph = (node: GraphNode) => node.icon.kind === "emoji" ? node.icon.value : "[img]";
-  const lines: string[] = [];
-  const focus = byId.get(body.focus);
-  if (focus) lines.push(`${glyph(focus.node)} ${focus.node.name}  (${focus.node.kind})`);
-
-  const seen = new Set<string>([body.focus]);
-  const walk = (from: string, indent: string, depth: number) => {
-    const buckets = new Map<string, { edge: GraphEdge; other: string }[]>();
-    for (const edge of body.edges) {
-      if (edge.from !== from && edge.to !== from) continue;
-      const other = edge.from === from ? edge.to : edge.from;
-      if (seen.has(other) || !byId.get(other)) continue;
-      const relation = edge.from === from ? edge.relation : inverseOf(edge.relation);
-      const bucket = buckets.get(relation);
-      if (bucket) bucket.push({ edge, other });
-      else buckets.set(relation, [{ edge, other }]);
-    }
-    // In display order, so the most meaningful path claims a node first: a
-    // blaster belongs under the buttons that drive it, not under the room it
-    // happens to share with them.
-    const ordered = [...buckets.entries()].sort((a, b) => {
-      const rank = (name: string) => { const index = (RELATION_ORDER as readonly string[]).indexOf(name); return index < 0 ? RELATION_ORDER.length : index; };
-      return rank(a[0]) - rank(b[0]);
-    });
-    for (const [relation, entries] of ordered) {
-      // Something claimed by a deeper branch is not listed twice, and a bucket
-      // left empty by that must not print a heading with nothing under it.
-      const fresh = entries.filter(({ other }) => !seen.has(other));
-      if (!fresh.length) continue;
-      lines.push(`${indent}${relation}`);
-      for (const { edge, other } of fresh) {
-        if (seen.has(other)) continue;
-        seen.add(other);
-        const entry = byId.get(other)!;
-        const role = edge.label ? ` [${edge.label}]` : "";
-        const via = edge.via ? ` via ${edge.via}` : "";
-        const origin = explain ? `  (${edge.origin})` : "";
-        lines.push(`${indent}  ${glyph(entry.node)} ${entry.node.name}${role}${via}  (${entry.node.kind})${origin}`);
-        if (depth < 2) walk(other, `${indent}    `, depth + 1);
-      }
-    }
-  };
-  walk(body.focus, "  ", 1);
-  for (const entry of body.truncated) {
-    const owner = byId.get(entry.from);
-    lines.push(`  … ${entry.hidden} more from ${owner?.node.name ?? entry.from}`);
-  }
+  const byId = new Map(body.nodes.map((entry) => [entry.id, entry]));
+  const focus = body.nodes.find(entry => entry.node.id === body.query.focus);
+  const lines = [focus ? `${focus.node.name}  (${focus.node.kind})` : `${body.query.view} graph`];
+  const rows = body.edges.map(({ from, to, edge }) => {
+    const source = byId.get(from)?.node.name ?? from;
+    const target = byId.get(to)?.node.name ?? to;
+    const role = edge.label ? ` [${edge.label}]` : "";
+    const via = edge.via ? ` via ${edge.via}` : "";
+    return [source, `${edge.relation}${role}${via}`, target, ...(explain ? [edge.origin] : [])];
+  });
+  if (rows.length) lines.push("", table([["FROM", "RELATION", "TO", ...(explain ? ["ORIGIN"] : [])], ...rows]).trimEnd());
+  const connected = new Set(body.edges.flatMap(edge => [edge.from, edge.to]));
+  for (const entry of body.nodes) if (!connected.has(entry.id) && entry !== focus) lines.push(`  ${entry.node.name}  (${entry.node.kind})`);
+  for (const group of body.groups) if (group.hidden) lines.push(`  … ${group.hidden} more in ${group.name}`);
+  for (const entry of body.nodes) if (entry.hidden) lines.push(`  … ${entry.hidden} more connected to ${entry.node.name}`);
+  if (body.omitted) lines.push(`${body.omitted} matching elements are outside this view.`);
   return `${lines.join("\n")}\n`;
 }

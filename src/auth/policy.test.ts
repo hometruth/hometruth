@@ -45,7 +45,7 @@ test("no policy names a route that does not exist", async () => {
 
 test("nothing under /api is public except health and the credential exchange", () => {
   expect([...PUBLIC_ROUTES].filter(key => key.includes(" /api/")).sort())
-    .toEqual(["GET /api/health", "POST /api/auth/sign-in"]);
+    .toEqual(["GET /api/health", "POST /api/auth/passkeys/authenticate/options", "POST /api/auth/passkeys/authenticate/verify", "POST /api/auth/sign-in"]);
 });
 
 test("every route that enables or disables the automation requires admin", () => {

@@ -1,7 +1,7 @@
 # Govee H5075 thermometer and hygrometer
 
 The `govee-h5075` model reads temperature (°C), relative humidity (%), and
-battery (%) directly from Bluetooth advertisements. The current receiver uses a macOS host's Bluetooth adapter and needs no Govee account, Wi-Fi, pairing code, or cloud API key.
+battery (%) directly from Bluetooth advertisements. The receiver uses the server's own Bluetooth adapter (macOS or Linux) and needs no Govee account, Wi-Fi, pairing code, or cloud API key.
 The device owns three separate `Sensor` instances: `TemperatureSensor`,
 `HumiditySensor`, and `BatterySensor`. Each has its own schema, availability,
 value, and observation timestamp. `/api/devices/:id` returns them in
@@ -18,12 +18,19 @@ have no write controls.
 
 ## Setup
 
-This receiver currently supports macOS, with Bluetooth enabled and Xcode Command
-Line Tools installed (`xcode-select --install` if needed). HomeTruth builds a small
+On macOS, enable Bluetooth and install Xcode Command Line Tools
+(`xcode-select --install` if needed). HomeTruth builds a small
 Swift/CoreBluetooth helper into the ignored `.hometruth/bluetooth/` directory on
 first use. It includes a Bluetooth usage description. Allow Bluetooth for the app
 running HomeTruth under **System Settings → Privacy & Security → Bluetooth** if
-macOS asks. The server host must remain awake and within Bluetooth range.
+macOS asks.
+
+On Linux, HomeTruth reads BlueZ over D-Bus with `src/protocols/govee/scan-bluez.py`.
+Install `bluez`, `python3-dbus` and `python3-gi`, and run `bluetoothd` with a
+powered adapter (in a VM, pass the host's USB Bluetooth controller through). The
+server user needs D-Bus access to BlueZ, which Debian grants by default.
+
+The server host must remain awake and within Bluetooth range.
 
 With the sensor nearby, discover its identity:
 
@@ -34,7 +41,7 @@ bun ../hometruth/src/vendors/govee/discover.ts 20
 
 The result includes each H5075's `name`, `peripheralId`, current readings, and
 observation time. Match its readings to the physical display. Multiple matching
-thermometers must be distinguished before provisioning. Add the selected UUID
+thermometers must be distinguished before provisioning. Add the selected identifier
 to `devices.yml`:
 
 ```yaml
@@ -42,13 +49,14 @@ to `devices.yml`:
     name: Govee thermometer
     model: govee-h5075
     config:
-      peripheralId: "00000000-0000-0000-0000-000000000001" # use discovery's actual UUID
+      peripheralId: "00000000-0000-0000-0000-000000000001" # use discovery's actual identifier
       bluetoothName: "GVH5075_ABCD" # optional display label
       staleAfterMs: 120000 # optional; default two minutes
 ```
 
-macOS identifies a BLE peripheral by a UUID rather than exposing its MAC address.
-Discover it again if moving HomeTruth to a different Mac. `peripheralId` is the
+macOS identifies a BLE peripheral by a per-Mac UUID rather than exposing its
+Bluetooth address; Linux reports the address itself (`A4:C1:38:…`). Discover it
+again when moving HomeTruth to a different server. `peripheralId` is the
 device selector; `bluetoothName` is a display label. Do not use the printed serial
 number or put a Bluetooth address in the inventory's LAN `mac` field.
 

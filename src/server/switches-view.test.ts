@@ -92,7 +92,10 @@ function fixture(writable = true) {
 describe("Switches view", () => {
   test("offers room editing for switches and devices, validates assignments, and supports clearing", async () => {
     const { app, site, writer } = fixture();
-    site.get("gate")!.room = "Kitchen";
+    await app.request("/api/devices/gate/room", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ room: "Kitchen" }),
+    });
+    writer.rooms.length = 0;
     const inventory = await (await app.request("/api/devices")).json();
     expect(inventory.devices.find((device: { id: string }) => device.id === "gate").room).toBe("Kitchen");
     expect((await (await app.request("/api/devices/gate")).json()).room).toBe("Kitchen");
@@ -129,16 +132,16 @@ describe("Switches view", () => {
       { device: (id) => id === on.id ? on : off },
     );
     const app = createApp(undefined, new Site([on, off, candles]));
-    const initial = await app.request("/api/switches/candles");
+    const initial = await app.request("/api/switches/fireplace-candles");
     expect(initial.status).toBe(200);
     expect((await initial.json()).state).toEqual({ availability: "unknown" });
     for (const [action, value] of [["toggle", "on"], ["turn-off", "off"], ["turn-on", "on"]]) {
-      const response = await app.request(`/api/switches/candles/${action}`, {
+      const response = await app.request(`/api/switches/fireplace-candles/${action}`, {
         method: "POST", headers: { "content-type": "application/json" }, body: "{}",
       });
       expect(response.status).toBe(200);
       expect((await response.json()).state).toMatchObject({ availability: "unknown", value });
-      expect((await (await app.request("/api/switches/candles")).json()).state).toMatchObject({ availability: "unknown", value });
+      expect((await (await app.request("/api/switches/fireplace-candles")).json()).state).toMatchObject({ availability: "unknown", value });
     }
   });
 
@@ -165,7 +168,7 @@ describe("Switches view", () => {
     const { app, writer, signalCodes, post } = fixture();
     // Write through the application so its materialized signal index sees the change.
     for (const [name, code] of [["Candles on", "AAEC"], ["Candles off", "AAED"]]) {
-      const saved = await app.request("/api/ir-rf-blasters/blaster/codes", {
+      const saved = await app.request("/api/ir-rf-blasters/living-room-blaster/codes", {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ name, channel: "radio-frequency", code }),
       });

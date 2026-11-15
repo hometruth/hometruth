@@ -82,13 +82,13 @@ test("Frigate REST backfill preserves source time, links recordings, and dedupli
   } finally { history.close(); }
 });
 
-test("bounded metadata history filters before limiting and rejects image data", () => {
-  const history = new FrigateEventHistory(":memory:", 3);
+test("indefinite metadata history filters before limiting and rejects image data", () => {
+  const history = new FrigateEventHistory(":memory:");
   try {
     expect(importFrigateHistory(history, [prior("quiet", 100), prior("front", 101), prior("front", 102), prior("front", 103)], config)).toBe(4);
-    expect(history.recent()).toHaveLength(3);
-    expect(history.subjects()).toEqual(["front-camera"]);
-    expect(history.recent(1, { subject: "quiet-camera" })).toEqual([]);
+    expect(history.recent()).toHaveLength(4);
+    expect(history.subjects()).toEqual(["front-camera", "quiet-camera"]);
+    expect(history.recent(1, { subject: "quiet-camera" })).toHaveLength(1);
     expect(history.recent(1, { types: ["camera_classified"] })).toEqual([]);
     expect(history.recent(1, { level: "error" })).toEqual([]);
     const event = normalizeFrigateHistory(prior("front", 104), config)!;

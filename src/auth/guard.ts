@@ -1,26 +1,7 @@
-/**
- * The one place a request is allowed in.
- *
- * Every request passes through here, and the default is no. A route is let
- * through only when `policy.ts` names it public, or when a presented token
- * both holds the verb the policy asks for and reaches the thing the route
- * touches. There is no third path, and no handler can opt itself out.
- *
- * One credential type, carried two ways. A token is a token whether it arrives
- * as `Authorization: Bearer ht_…` from the CLI or as an HttpOnly cookie from a
- * browser; the cookie is not a separate session object with its own lifetime
- * and its own bugs, it is the same row in the same table, revocable from the
- * same page. Signing in is exchanging the string for the cookie, which is why
- * `/api/auth/sign-in` is the only policed thing that has to be public.
- *
- * (If a human-chosen password or a passkey is ever added, it belongs *in front*
- * of this: verify the credential, then mint a token and set this same cookie.
- * Everything downstream — policy, scope, revocation, the token list — already
- * works, and `Bun.password` already provides Argon2id with no dependency.)
- */
+/** One authorization policy for API credentials, browser sessions and explicitly trusted networks. */
 import type { Context, MiddlewareHandler } from "hono";
-import { getCookie, setCookie } from "hono/cookie";
-import { parseElementKey } from "../tags/identity";
+import { getCookie } from "hono/cookie";
+import type { ElementScope } from "./element-scope";
 import { errorJson, type AppEnvironment } from "../server/http";
 import type { Permission } from "./model";
 import { isPublicRoute, policyFor, type RoutePolicy } from "./policy";
@@ -28,11 +9,10 @@ import { CLIENT_ADDRESS_HEADER, isPrivateAddress, trustsLocalNetwork } from "./n
 import { localNetworkPrincipal, Principal, type ScopeSite } from "./scope";
 import type { TokenStore } from "./store";
 
-export const SESSION_COOKIE = "ht_session";
+import { protectStream } from "./stream";
+import { currentSession, clearSessionCookie, SESSION_COOKIE, freshAuthentication } from "./browser-session";
 /** Where an unauthenticated browser is sent, with the page it wanted. */
 export const SIGN_IN_PATH = "/sign-in";
-/** How a token may be handed to a browser that cannot paste one — a Kindle, a QR code. */
-export const TOKEN_QUERY_PARAM = "token";
 
 export interface GuardSite extends ScopeSite {
   pages(): { resolve(path: string): { entry: { readonly source: string; readonly id: string } } | undefined } | undefined;
@@ -81,32 +61,12 @@ function wantsHtml(context: Context): boolean {
   return context.req.method === "GET" && (context.req.header("accept") ?? "").includes("text/html");
 }
 
-function setSessionCookie(context: Context, token: string): void {
-  setCookie(context, SESSION_COOKIE, token, {
-    path: "/",
-    httpOnly: true,
-    sameSite: "Lax",
-    // Only meaningful behind TLS; harmless (and correct) to omit on plain LAN HTTP.
-    secure: new URL(context.req.url).protocol === "https:",
-    maxAge: 60 * 60 * 24 * 365,
-  });
-}
-
-export function clearSessionCookie(context: Context): void {
-  setCookie(context, SESSION_COOKIE, "", { path: "/", httpOnly: true, sameSite: "Lax", maxAge: 0 });
-}
-
-/** Header first, then cookie: a program's explicit token always beats a stale browser cookie. */
-function presentedToken(context: Context): string | undefined {
-  const header = context.req.header("authorization");
-  if (header?.startsWith("Bearer ")) return header.slice("Bearer ".length).trim();
-  return getCookie(context, SESSION_COOKIE) || undefined;
-}
-
 /** Whether a principal satisfies one policy against this request's parameters. */
-export function authorized(principal: Principal, site: GuardSite, policy: RoutePolicy, context: Context, route: { method: string; path: string }): boolean {
+export function authorized(principal: Principal, site: GuardSite, policy: RoutePolicy, context: Context, route: { method: string; path: string }, resolveElementScope?: (key: string) => ElementScope | undefined): boolean {
   const { permission, target } = policy;
-  const params = routeParams(route.path, new URL(context.req.url).pathname);
+  if (permission === "admin") return principal.allowsSite("admin");
+  // Routing has resolved the current public name to its stable internal ID.
+  const params = routeParams(route.path, context.req.path);
   switch (target.kind) {
     case "site":
       return principal.allowsSite(permission);
@@ -119,10 +79,9 @@ export function authorized(principal: Principal, site: GuardSite, policy: RouteP
     case "group":
       return groupAllowed(principal, site, params[target.param] ?? "", permission);
     case "element": {
-      const parsed = parseElementKey(params[target.param] ?? "");
-      // Only a device key narrows to a device. Anything else — a tag, a schema,
-      // the site node itself — is site-wide, and needs a site-wide token.
-      if (parsed?.kind === "device" && parsed.ids[0]) return principal.allowsDevice(parsed.ids[0], permission);
+      const scope = resolveElementScope?.(params[target.param] ?? "");
+      if (scope?.kind === "device") return principal.allowsDevice(scope.id, permission);
+      if (scope?.kind === "group") return groupAllowed(principal, site, scope.id, permission);
       return principal.allowsSite(permission);
     }
     case "page":
@@ -159,6 +118,8 @@ function pageAllowed(principal: Principal, site: GuardSite, context: Context, pe
 export interface GuardOptions {
   readonly tokens: TokenStore;
   readonly site: GuardSite;
+  /** Proves an element's owner from the current topology, including nested parts. */
+  readonly resolveElementScope?: (key: string) => ElementScope | undefined;
   /**
    * Whether a caller on a private network needs no token at all. On unless
    * `HOMETRUTH_TRUST_LAN` switches it off. Injected so tests can state which
@@ -177,40 +138,18 @@ export function clientAddress(context: Context): string | undefined {
   return context.req.header(CLIENT_ADDRESS_HEADER)?.trim() || undefined;
 }
 
-export function authGuard({ tokens, site, trustLocalNetwork = trustsLocalNetwork() }: GuardOptions): MiddlewareHandler<AppEnvironment> {
+export function authGuard({ tokens, site, resolveElementScope, trustLocalNetwork = trustsLocalNetwork() }: GuardOptions): MiddlewareHandler<AppEnvironment> {
   return async (context, next) => {
     const route = matchedRoute(context);
     // Nothing matched: let Hono's own 404 answer. There is nothing here to protect.
     if (!route) return await next();
     if (isPublicRoute(route.method, route.path)) return await next();
 
-    const url = new URL(context.req.url);
-    const fromQuery = url.searchParams.get(TOKEN_QUERY_PARAM);
-    /**
-     * A token in the URL is how a browser that cannot paste one signs in: the
-     * Kindle's bookmark, or a QR code scanned by a phone. It is accepted once,
-     * moved straight into the cookie, and stripped by a redirect so it stops
-     * living in history, logs and bookmarks. Pages already send
-     * `Referrer-Policy: no-referrer`, so it does not leak on the way out.
-     */
-    if (fromQuery && wantsHtml(context)) {
-      const verified = tokens.verify(fromQuery);
-      if (verified.ok) {
-        setSessionCookie(context, fromQuery);
-        url.searchParams.delete(TOKEN_QUERY_PARAM);
-        return context.redirect(`${url.pathname}${url.search}`, 303);
-      }
-    }
-
-    /**
-     * Who is asking. A presented token always wins over the network a caller
-     * is on: a credential means what it says, so a Kindle carrying a narrow
-     * token stays narrow at home rather than quietly becoming an admin. Only
-     * the absence of one falls through to local-network trust.
-     */
     const address = clientAddress(context);
     const localTrusted = trustLocalNetwork && isPrivateAddress(address);
-    const presented = presentedToken(context);
+    const authorization = context.req.header("authorization");
+    const presented = authorization?.startsWith("Bearer ") ? authorization.slice(7).trim() : undefined;
+    const browser = authorization ? undefined : currentSession(context, tokens);
     let principal: Principal | undefined;
     let kid: string | undefined;
 
@@ -220,15 +159,18 @@ export function authGuard({ tokens, site, trustLocalNetwork = trustsLocalNetwork
         principal = new Principal(verified.token, site);
         kid = verified.token.kid;
       } else {
-        // A revoked or expired cookie is dead weight in the browser; drop it so
-        // the next page load lands on sign-in instead of failing again silently.
-        if (getCookie(context, SESSION_COOKIE)) clearSessionCookie(context);
-        // A dead cookie must not lock someone out of their own living room, so
-        // on a trusted network this falls through rather than refusing.
-        if (!localTrusted) {
-          return refuse(context, 401, "unauthenticated", verified.reason === "expired" ? "That token has expired" : "That token is not valid");
-        }
+        return refuse(context, 401, "unauthenticated", "That token is not valid");
       }
+    } else if (authorization) {
+      return refuse(context, 401, "unauthenticated", "That token is not valid");
+    } else if (browser) {
+      principal = new Principal(browser.token, site, "session");
+      kid = browser.token.kid;
+      context.set("browserSession", browser.session);
+      tokens.browsers.touch(browser.session);
+    } else if (getCookie(context, SESSION_COOKIE)) {
+      clearSessionCookie(context);
+      if (!localTrusted) return refuse(context, 401, "unauthenticated", "Your session has ended. Sign in again");
     }
     if (!principal && localTrusted) principal = localNetworkPrincipal(site, address!);
     if (!principal) return refuse(context, 401, "unauthenticated", "This request needs an API token");
@@ -238,13 +180,33 @@ export function authGuard({ tokens, site, trustLocalNetwork = trustsLocalNetwork
     // ever is reached: an unpoliced route is denied, never waved through.
     if (!policy) return refuse(context, 403, "forbidden", "This route has no access policy");
 
-    if (!authorized(principal, site, policy, context, route)) {
+    if (!authorized(principal, site, policy, context, route, resolveElementScope)) {
       return refuse(context, 403, "forbidden", `This token does not hold "${policy.permission}" for that`);
     }
 
     context.set("principal", principal);
+    // Changing credentials or revoking another browser requires recent proof.
+    if (context.req.method !== "GET" && (route.path.startsWith("/api/tokens")
+      || route.path.startsWith("/api/auth/passkeys/register") || route.path.startsWith("/api/auth/passkeys/:")
+      || route.path.startsWith("/api/auth/sessions/:")) && !freshAuthentication(context)) {
+      return refuse(context, 403, "reauthentication_required", "Sign in again before changing access");
+    }
     if (kid) tokens.touch(kid, address);
     await next();
+    // A streaming response outlives this request's initial authorization. Keep
+    // the original reach only as a boundary; every check resolves fresh state.
+    const originalDevices = principal.devices();
+    context.res = protectStream(context.res, () => {
+      const browserNow = principal.origin === "session" ? currentSession(context, tokens) : undefined;
+      if (principal.origin === "session" && (!browserNow || browserNow.session.id !== browser?.session.id)) return false;
+      const token = principal.isLocalNetwork ? principal.token : tokens.active(principal.kid);
+      if (!token) return false;
+      const fresh = new Principal(token, site, principal.origin);
+      const devices = fresh.devices();
+      if (originalDevices === "all" ? devices !== "all"
+        : devices === "all" || devices.size !== originalDevices.size || [...originalDevices].some(id => !devices.has(id))) return false;
+      return authorized(fresh, site, policy, context, route, resolveElementScope);
+    });
   };
 }
 

@@ -5,7 +5,7 @@ import type { SonosFetch } from "../../../protocols/sonos/soap-client";
 import { clearSayClips, type SaySynthesizer } from "./say";
 import { validators } from "../../../validation";
 
-/** A fake synthesizer so tests never spawn the real macOS `say` process. */
+/** A fake synthesizer so tests never spawn a real speech engine. */
 const fakeSynthesizeSayClip: SaySynthesizer = async () => new Uint8Array([0, 1, 2, 3]);
 
 beforeEach(() => clearSayClips());
@@ -251,4 +251,16 @@ describe("SONOS device", () => {
 
     await expect(device.probe()).resolves.toEqual({ model: "Sonos speaker" });
   });
+});
+
+test("built-in dinner bell supplies a local URL and duration metadata without TTS", async () => {
+  const fake = fakeSonosFetch(); const bodies: string[] = [];
+  const speaker = new SonosSpeaker({ id: "test-speaker", host: "10.77.0.170", localMediaBaseUrl: () => "http://10.77.0.2:3000", fetch: async (url, init) => {
+    if (init?.body) bodies.push(String(init.body)); return fake.fetch(url, init);
+  } });
+  expect(speaker.supportsSounds()).toBe(true); await speaker.playSound("dinnerBell");
+  expect(fake.actions).toEqual(["SetAVTransportURI", "Play"]);
+  expect(bodies[0]).toContain("http://10.77.0.2:3000/local-media/sounds/dinner-bell.wav");
+  expect(bodies[0]).toContain("0:00:03.000");
+  expect(new SonosSpeaker({ id: "unconfigured", host: "10.77.0.170", fetch: fake.fetch }).supportsSounds()).toBe(false);
 });

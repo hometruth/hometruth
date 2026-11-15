@@ -8,17 +8,17 @@ test("read, write and admin form a hierarchy within the token's scope", () => {
   expect(PERMISSIONS).toEqual(required);
   for (const [index, held] of required.entries()) {
     const principal = new Principal({
-      kid: "test", name: held, permissions: [held], subject: { device: "gate-relay" }, createdAt: new Date().toISOString(),
+      kid: "test", name: held, permissions: [held], subject: held === "admin" ? { all: true } : { device: "gate-relay" }, createdAt: new Date().toISOString(),
     }, { deviceGroups: [], automaticGroupMembers: () => [] });
     expect(required.map(permission => principal.allowsDevice("gate-relay", permission))).toEqual(grants[index]!);
-    expect(required.map(permission => principal.allowsDevice("other-relay", permission))).toEqual([false, false, false]);
-    expect(required.map(permission => principal.allowsSite(permission))).toEqual([false, false, false]);
+    expect(required.map(permission => principal.allowsDevice("other-relay", permission))).toEqual(held === "admin" ? [true, true, true] : [false, false, false]);
+    expect(required.map(permission => principal.allowsSite(permission))).toEqual(held === "admin" ? [true, true, true] : [false, false, false]);
   }
 });
 
 test("only the current access levels and exactly one subject are accepted", () => {
   const base = { name: "Gate", subject: { device: "gate-relay" } };
-  for (const permission of PERMISSIONS) expect(validateTokenCreate({ ...base, permissions: [permission] })).toBe(true);
+  for (const permission of PERMISSIONS) expect(validateTokenCreate({ ...base, permissions: [permission] })).toBe(permission !== "admin");
   for (const removed of ["control", "media", "events", "owner"]) {
     expect(validateTokenCreate({ ...base, permissions: [removed] })).toBe(false);
     expect(PERMISSIONS.map(required => permits([removed as Permission], required))).toEqual([false, false, false]);

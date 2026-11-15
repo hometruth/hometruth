@@ -1,11 +1,17 @@
-import { healthRoutes } from "./health-routes";
+import { HealthService } from "../health/service";
+import { eventForApi } from "../element-api/event-presentation";
+import type { ServiceEvent as ArchivedEvent } from "../models/event-log";
+import type { EventHistory } from "../models/event-history";
+import { healthRoutes, healthControlFailures } from "./health-routes";
 import { pageCatalog } from "./page-catalog";
 import { postControlNames, readControlPath } from "../control-routes";
 import { renderTagEditor } from "../ui/tag-editor";
 import { renderElementApi, renderElementApiTabs, ELEMENT_API_CSS, ELEMENT_API_SCRIPT } from "../ui/element-api";
 import { buildElementApi, elementForPage } from "../element-api/contract";
+import { addressesFor } from "../element-api/addresses";
 import { clientRoutes } from "../client/routes";
-import { inventoryFor } from "../client/inventory";
+import { mcpRoutes } from "../mcp/routes";
+import { inventoryFor, visibleElement } from "../client/inventory";
 import type { GraphStore } from "../graph/store";
 import { elementApiRoutes } from "../element-api/routes";
 import { renderCooktopPage } from "../ui/cooktop-page";
@@ -72,15 +78,17 @@ import { deviceNode } from "../state/protocol";
 import { stateRoutes } from "./state-routes";
 import { authRoutes } from "./auth-routes";
 import { authGuard } from "../auth/guard";
+import { elementScope } from "../auth/element-scope";
 import { TokenStore } from "../auth/store";
 import { trustsLocalNetwork } from "../auth/network";
 import { uiModuleRoutes } from "./ui-modules";
-import type { EventFilter } from "../models/event-log";
+import { compileEventFilter, type EventFilter, type ServiceEvent } from "../models/event-log";
+import { controlEvents } from "./control-events";
 import { compileFilterCondition, FilterValidationError, type FilterCondition } from "../models/filter";
 import { FilterStore, FilterStoreError } from "../models/filter-store";
 import { readEventSelection } from "../models/event-selection";
 import { filterRoutes } from "./filter-routes";
-import { CameraLabelFeed } from "../vendors/frigate/label-feed";
+import { CameraLabelFeed, labelEventOrder } from "../vendors/frigate/label-feed";
 import { FrigateEvents } from "../vendors/frigate/events";
 import { PreviewAccessError } from "../vendors/frigate/previews";
 import { ALARM_CAPTURE_DIRECTORY } from "../vendors/tkenpro/alarm-upload";
@@ -93,7 +101,8 @@ import { renderSchemaAdminPage } from "../schema-admin";
 import { renderSchemaPage } from "../schema-page";
 import { renderCameraDashboardPage } from "../ui/dashboard";
 import { renderCameraPage } from "../ui/camera-page";
-import { partitionDevicesIntoGroups, renderHomePage, renderRootPage } from "../ui/home";
+import { renderOverviewPage } from "../ui/overview";
+import { partitionDevicesIntoGroups, renderHomePage } from "../ui/home";
 import { renderGroupPage } from "../ui/group-page";
 import { deviceGroupRoutes } from "./device-group-routes";
 import { renderServicePage, renderServicesPage } from "../ui/services-page";
@@ -106,11 +115,16 @@ import { renderDeviceSwitchDefinition } from "../ui/switch-definition";
 import { renderSpeakerPage } from "../ui/speaker-page";
 import { renderTelevisionPage } from "../ui/television-page";
 import { renderButtonPage } from "../ui/button-page";
-import type { WorkflowTarget } from "../ui/button-page";
+import { workflowCatalog, validateWorkflowTargets } from "../workflows/catalog";
+import { emptyWorkflow, workflowTargets as referencedWorkflowTargets } from "../workflows/definition";
+import { workflowSchema } from "../workflows/schema";
+import { validateWorkflowShape } from "../workflows/validation";
+import { simulateWorkflow } from "../workflows/simulation";
 import { renderButtonsPage } from "../ui/buttons-page";
 import { renderDeviceLogPage } from "../ui/device-log-page";
 import { renderEventsPage } from "../ui/events-page";
-import { parseViewState, renderGraphPage } from "../ui/graph-page";
+import { renderElementLogPage } from "../ui/element-log-page";
+import { elementEventMatcher } from "../models/element-events";
 import { deviceNav, renderDeviceHead } from "../ui/shell";
 
 import { graphRoutes } from "./graph-routes";
@@ -124,7 +138,9 @@ import { DeviceConfigWriteError, type DeviceConfigWriter } from "../config/devic
 import type { DeviceConfigEntry } from "../config/devices";
 import { renderSwitchesPage, type SwitchBuilderButton } from "../ui/switches-page";
 import type { DeviceRenameRequest, DeviceRenameResponse, OptimisticSwitchCreateRequest, OptimisticSwitchCreateResponse } from "../schemas";
-import type { MatterBridgeSettings, MatterSettingsSource } from "../integrations/matter/settings";
+import { BridgeService } from "../bridges/service";
+import { bridgeRoutes } from "./bridge-routes";
+import { renderBridgeMembership } from "../ui/bridges-page";
 import { WorkflowButtonDevice } from "../devices/composites/workflow-button";
 import { validateWorkflow, WorkflowValidationError, type WorkflowDefinition } from "../workflows/runner";
 import type { WorkflowButtonCreateRequest, WorkflowButtonUpdateRequest, HomeTruthObject } from "../schemas";
@@ -149,8 +165,8 @@ export function createApp(
   deviceLogs: DeviceEventLogs = new DeviceEventLogs(),
   /** Narrow writer used by the Switch builder; absent in read-only/test instances. */
   deviceConfigWriter?: DeviceConfigWriter,
-  /** Private, read-only Matter bridge pairing information for device Settings pages. */
-  matterSettings?: MatterSettingsSource,
+  /** Independently configured Apple Home bridges. */
+  bridges = new BridgeService(),
   kindleConfig: KindleConfigStore = new MemoryKindleConfigStore(),
   wifiAdmission?: WifiAdmissionService,
   tags: TagStore = new TagStore(),
@@ -167,6 +183,7 @@ export function createApp(
   tokens?: TokenStore,
   graphStore?: GraphStore,
   filters: FilterStore = new FilterStore(),
+  eventHistory?: EventHistory,
 ) {
   site.setTagSource(tags);
   // Rooms live in the ontology now. This reads the `room:` strings still in
@@ -178,7 +195,10 @@ export function createApp(
     devices: site.devices.map(device => ({ id: device.id, ...(device.room ? { room: device.room } : {}) })),
     groups: site.deviceGroups.map(group => ({ id: group.id, ...(group.room ? { room: group.room } : {}) })),
   });
-  const app = new Hono<AppEnvironment>();
+  const publicEvent = (event: ServiceEvent) => eventForApi(event, path => addressesFor(hub).publicPath(path));
+  const app = new Hono<AppEnvironment>({
+    getPath: request => addressesFor(hub).internalPath(new URL(request.url).pathname) ?? "/__missing_element__",
+  });
 
   /**
    * Narrow a listing to what this request may see.
@@ -339,7 +359,7 @@ export function createApp(
       return automationSwitchDocument(service.id, service.title, service.switch.enabled, service.status().availability, new Date().toISOString());
     },
   });
-  const data = hub.configure({ site, deviceLogs, eventSources: site.services.map(service => service.id === "frigate" ? new CameraLabelFeed(service, site.getService("photo-labels")) : service), ...(networkRecovery && deviceConfigWriter?.setNetwork && site.devices.some(device => networkTargetOf(device)) ? { networkClients: () => networkRecovery.addressSettings().list() } : {}), signals: signalCodes, kindle: kindleConfig, tags, ...(matterSettings ? { matter: matterSettings } : {}) });
+  const data = hub.configure({ site, deviceLogs, eventSources: site.services.map(service => service.id === "frigate" ? new CameraLabelFeed(service, site.getService("photo-labels")) : service), ...(networkRecovery && deviceConfigWriter?.setNetwork && site.devices.some(device => networkTargetOf(device)) ? { networkClients: () => networkRecovery.addressSettings().list() } : {}), signals: signalCodes, kindle: kindleConfig, tags });
   signalCodes = data.signals;
   kindleConfig = data.kindle;
   // Bootstrap reads are independent of requests. Runtime activation awaits local metadata once.
@@ -394,22 +414,7 @@ export function createApp(
     return device instanceof WorkflowButtonDevice ? device : undefined;
   };
 
-  const workflowTargets = (): WorkflowTarget[] => site.devices
-    .map((device) => ({ id: device.id, name: device.name, ...(site.view(device.id)?.room ? { room: site.view(device.id)!.room! } : {}), controls: postControlNames(device) }))
-    .sort((a, b) => a.name.localeCompare(b.name));
-
-  const validateWorkflowForSite = (workflow: WorkflowDefinition): void => {
-    validateWorkflow(workflow);
-    for (const node of workflow.nodes) {
-      if (node.type !== "action" && node.type !== "condition") continue;
-      const target = site.get(node.device);
-      if (!target) throw new WorkflowValidationError(`Workflow node "${node.id}" targets missing device "${node.device}"`);
-      if (node.type === "action") {
-        try { target.resolveControl(node.control); }
-        catch (error) { throw new WorkflowValidationError(error instanceof Error ? error.message : String(error)); }
-      }
-    }
-  };
+  const validateWorkflowForSite = (workflow: WorkflowDefinition, ownId?: string): void => validateWorkflowTargets(workflow, site.devices, ownId);
 
   app.use("*", requestId());
   app.use("*", async (context, next) => {
@@ -497,14 +502,33 @@ export function createApp(
   // about whether the local network is open.
   const trustLocalNetwork = trustsLocalNetwork();
   if (tokens) {
-    app.use("*", authGuard({ tokens, site, trustLocalNetwork }));
+    app.use("*", authGuard({ tokens, site, trustLocalNetwork, resolveElementScope: key => {
+      const topology = hub.data.topology();
+      return elementScope(topology, topology.node(key));
+    } }));
   } else if (process.env.NODE_ENV !== "test") {
     app.use("*", async context => errorJson(context, 503, "unconfigured",
       "HomeTruth was started without a token store and cannot authenticate anyone"));
   }
 
+  app.use("*", healthControlFailures(site));
+  app.use("*", controlEvents(site, deviceLogs, id => describeDevice(site.get(id)!)));
   app.use("*", async (context, next) => {
     const principal = context.get("principal");
+    const health = site.getService("health");
+    if (health instanceof HealthService && (!principal || principal.allowsSite("read"))) context.set("healthInvestigations", health.investigations());
+    const addresses = addressesFor(hub);
+    if (!principal || principal.allowsSite("read")) context.set("apiAddresses", addresses.mappings);
+    else {
+      const allowed = new Set(addresses.topology.nodes().filter(node => visibleElement(node, hub, principal)).map(node => addresses.address(node.id)!));
+      const filter = (entries: Readonly<Record<string, string>>) => Object.fromEntries(Object.entries(entries).filter(([, address]) => allowed.has(address)));
+      const allowedTagIds = new Set([...tags.assignments()].filter(([key]) => allowed.has(addresses.address(key)!)).flatMap(([, ids]) => ids));
+      context.set("apiAddresses", {
+        devices: filter(addresses.mappings.devices), groups: filter(addresses.mappings.groups), services: filter(addresses.mappings.services),
+        elements: filter(addresses.mappings.elements), stateNodes: filter(addresses.mappings.stateNodes),
+        tags: Object.fromEntries(Object.entries(addresses.mappings.tags).filter(([id]) => allowedTagIds.has(id))),
+      });
+    }
     context.set("uiFeatures", {
       isolation: isolation !== undefined || wifiAdmission !== undefined,
       // With no guard there is no principal, and every page is already open.
@@ -513,6 +537,7 @@ export function createApp(
     const records = new Map(hub.snapshot().map(record => [record.node, record]));
     context.set("pageState", { snapshot: nodes => [...new Set(nodes)].flatMap(node => records.get(node) ?? []) });
     context.set("rooms", !principal || principal.allowsSite("read") ? site.rooms : []);
+    context.set("bridgeEditor", key => renderBridgeMembership(pageContext(context), key));
     context.set("tagEditor", key => {
       const catalog = pageCatalog(hub);
       const path = new URL(context.req.url).pathname;
@@ -525,10 +550,12 @@ export function createApp(
       const path = new URL(context.req.url).pathname;
       const node = elementForPage(site, hub, path);
       if (!node) return undefined;
-      const page = path.startsWith("/elements/") ? `/elements/${node.id}` : site.pages().resolve(path)?.entry.page ?? (path === "/" ? "" : path);
+      const page = path.startsWith("/elements/") ? `/elements/${encodeURIComponent(addresses.address(node.id)!)}` : site.pages().resolve(path)?.entry.page ?? (path === "/" ? "" : path);
       const api = buildElementApi({ site, hub, node, page, origin: new URL(context.req.url).origin, routes: app.routes, version: process.env.HOMETRUTH_RELOAD_VERSION ?? "dev", uuid: inventoryFor(hub, graphStore).byKey.get(node.id)!.uuid });
       const ctx = pageContext(context);
-      return { body: renderElementApi(ctx, api), tabs: renderElementApiTabs(ctx.path), css: ELEMENT_API_CSS, script: ELEMENT_API_SCRIPT };
+      const entry = site.pages().resolve(path)?.entry;
+      const logHref = node.side === "tag" ? undefined : entry ? `${entry.page}/log` : `/elements/${encodeURIComponent(addresses.address(node.id)!)}/log`;
+      return { body: renderElementApi(ctx, api), tabs: renderElementApiTabs(ctx.path), css: ELEMENT_API_CSS, script: ELEMENT_API_SCRIPT, ...(logHref ? { logHref } : {}) };
     });
     await next();
   });
@@ -549,10 +576,10 @@ export function createApp(
   };
   const devicePrefixes = ["devices", "switches", "lights", "string-lights", "buttons", "cameras", "sensors", "hubs", "blasters", "speakers", "groups"];
 
-  /** The root is deliberately blank for now: the devices listing lives at `/devices`. */
+  /** A live overview of the installation; inventory remains at `/devices`. */
   app.get("/", (context) => {
     context.header("Cache-Control", "no-store");
-    return context.html(renderRootPage(pageContext(context)));
+    return context.html(renderOverviewPage({ ctx: pageContext(context), devices: visible(context, site.list(), device => device.id), deviceGroups: visibleGroups(context, site.listGroups()) }));
   });
 
   app.get("/devices", (context) => {
@@ -562,16 +589,20 @@ export function createApp(
 
   app.route("/", elementApiRoutes(site, hub, () => app.routes));
   app.route("/", clientRoutes(hub, () => app.routes, graphStore));
+  app.route("/", mcpRoutes(request => app.fetch(request)));
   app.route("/", authRoutes(tokenStore, site, tags, trustLocalNetwork));
   app.route("/", stateRoutes(hub, { groupMembers: id => site.deviceGroups.find(group => group.id === id)?.members }));
   app.route("/", uiModuleRoutes());
+  bridges.configure(site, hub, deviceLogs);
+  app.route("/", bridgeRoutes(bridges));
   app.route("/", tagRoutes(site, tags, hub));
   app.route("/", filterRoutes(filters));
   app.route("/", graphRoutes(hub));
   app.route("/", iconRoutes());
   app.route("/", kindleRoutes(site, hub));
-  app.route("/", deviceGroupRoutes(site, tags, hub, deviceConfigWriter, (id, control) => {
-    deviceLogs.record(id, "device_control", `${site.get(id)?.name ?? id}: ${control}`, { data: { control } });
+  app.route("/", deviceGroupRoutes(site, tags, hub, deviceConfigWriter, (id, control, error) => {
+    if (error) deviceLogs.record(id, "device_control_failed", `${site.get(id)?.name ?? id}: ${control} failed — ${error}`.slice(0, 1000), { data: { control, reason: error.slice(0, 1000) } });
+    else deviceLogs.record(id, "device_control", `${site.get(id)?.name ?? id}: ${control}`, { data: { control } });
     changed(id);
   }, (group, snapshot) => {
     // The switch endpoint just described the group: the pages watching it get that document, not a second read.
@@ -605,54 +636,70 @@ export function createApp(
     return context.html(renderGroupPage({ ctx: pageContext(context), label: group.label, members: group.members, ...(group.controlDevice ? { controlDevice: group.controlDevice } : {}) }));
   });
 
-  // The Graph tab. One renderer serves every element; a device page reaches it
-  // through its own tab bar, everything else through /elements/<key>/graph.
-  for (const prefix of devicePrefixes) app.get(`/${prefix}/:slug/graph`, async (context) => {
-    const device = pageDevice(context);
-    if (!device) return context.notFound();
-    context.header("Cache-Control", "no-store");
-    const graph = data.topology();
-    const ctx = pageContext(context);
-    const url = new URL(context.req.url);
-    const page = renderGraphPage({
-      ctx, graph, focus: elementKey("device", device.id), nav: deviceNav(device),
-      state: parseViewState(url.searchParams), base: url.pathname,
-      header: renderDeviceHead(ctx, device, "graph"),
-    });
-    return page ? context.html(page) : context.notFound();
-  });
-
   for (const prefix of devicePrefixes) app.get(`/${prefix}/:slug/log`, (context) => {
     const device = pageDevice(context);
-    if (!device) return context.notFound();
+    if (!device) return elementLog(context);
     validatePageFilters(context);
     context.header("Cache-Control", "no-store");
     return context.html(renderDeviceLogPage({
       ctx: pageContext(context),
       device,
-      events: data.events.device(device.id),
+      events: data.events.device(device.id).filter(compileEventFilter(eventFilter(context, true))),
       types: EVENT_TYPES.map(({ id, label, description, level, view }) => ({ id, label, description, level, view })),
     }));
+  });
+
+  const elementLog = (context: Context<AppEnvironment>) => {
+    const node = elementForPage(site, hub, new URL(context.req.url).pathname);
+    if (!node || node.side === "tag") return context.notFound();
+    const matches = elementEventMatcher(data.topology(), node, eventFilter(context, true));
+    const subjects = subjectViews([...visible(context, site.list(), device => device.id).map(device => device.id), node.id,
+      ...(node.kind === "group-switch" ? [elementKey("group", node.ids[0]!)] : [])]);
+    context.header("Cache-Control", "no-store");
+    return context.html(renderElementLogPage(pageContext(context), node, data.events.matching(matches), subjects));
+  };
+  app.get("/elements/:key/log", elementLog);
+  app.get("/services/:slug/log", elementLog);
+
+  for (const stream of [false, true]) app.get(`/api/elements/:key/events${stream ? "/stream" : ""}`, context => {
+    const node = data.topology().node(context.req.param("key"));
+    if (!node || node.side === "tag") return context.notFound();
+    const matches = elementEventMatcher(data.topology(), node, eventFilter(context));
+    context.header("Cache-Control", "no-store");
+    if (!stream) {
+      const events = data.events.matching(matches, Number(context.req.query("limit")) || 200);
+      return checkedJson(context, validators.eventsResponse, { events: events.map(publicEvent), subjects: [...new Set(events.flatMap(event => event.subject ? [event.subject] : []))], types: [...new Set(events.map(event => event.type))] });
+    }
+    const encoder = new TextEncoder();
+    let release = () => {};
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        const send = (event: ServiceEvent) => {
+          try { controller.enqueue(encoder.encode(`event: service-event\ndata: ${JSON.stringify(publicEvent(event))}\n\n`)); }
+          catch { release(); }
+        };
+        controller.enqueue(encoder.encode("retry: 2000\n\n"));
+        for (const event of [...data.events.matching(matches)].reverse()) send(event);
+        release = data.events.subscribe((event, service) => { if (matches(event, service)) send(event); });
+      },
+      cancel() { release(); },
+    });
+    context.req.raw.signal.addEventListener("abort", () => release(), { once: true });
+    return new Response(body, { headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-store", "X-Accel-Buffering": "no" } });
   });
 
   for (const prefix of devicePrefixes) app.get(`/${prefix}/:slug/settings`, async (context) => {
     const device = pageDevice(context);
     if (!device) return context.notFound();
     context.header("Cache-Control", "no-store");
-    let matter: MatterBridgeSettings | undefined;
-    let matterError: string | undefined;
-    if (device.capabilities.includes("binarySwitch") && matterSettings) {
-      ({ value: matter, error: matterError } = data.matterSettings());
-    }
     return context.html(renderDeviceSettingsPage({
       ctx: pageContext(context),
       device,
       networkClients: data.networkClients(),
       networkWritable: Boolean(networkRecovery && deviceConfigWriter?.setNetwork),
       networkMac: networkTargetOf(site.get(device.id)!)?.mac,
+      isolation: isolation?.snapshot(),
       switchDefinition: renderDeviceSwitchDefinition(pageContext(context), site, site.get(device.id)!, id => data.signalCodes(id)),
-      ...(matter ? { matter } : {}),
-      ...(matterError ? { matterError } : {}),
     }));
   });
 
@@ -688,8 +735,8 @@ export function createApp(
           const workflow = workflowButtonOf(device.id);
           const options = {
             ctx, device,
-            workflowTargets: workflowTargets(),
-            canEditWorkflow: typeof deviceConfigWriter?.setWorkflow === "function",
+            workflowTargets: workflowCatalog(visible(context, site.devices, d => d.id)),
+            canEditWorkflow: typeof deviceConfigWriter?.setWorkflow === "function" && (!context.get("principal") || context.get("principal")?.allowsDevice(device.id, "admin") === true),
             ...(workflow ? { workflow: workflow.button.workflow, workflowRun: workflow.button.run } : {}),
           };
           return context.html(renderButtonPage(options));
@@ -804,7 +851,7 @@ export function createApp(
     context.header("Cache-Control", "no-store");
     return context.html(renderEventsPage({
       ctx: pageContext(context),
-      subjects: subjectViews(site.devices.map((device) => device.id)).sort((left, right) => left.name.localeCompare(right.name)),
+      subjects: subjectViews([...site.devices.map(device => device.id), ...site.deviceGroups.map(group => elementKey("group", group.id)), ...site.services.filter(service => service.switch).map(service => elementKey("automation", service.id))]).sort((left, right) => left.name.localeCompare(right.name)),
       types: eventTypeViews(),
       events: allEvents(200, eventFilter(context, true)),
     }));
@@ -819,20 +866,27 @@ export function createApp(
 
   app.get("/services/:id", (context) => {
     const match = site.pages().resolve(new URL(context.req.url).pathname);
-    const id = match?.entry.source === "service" ? match.entry.id : context.req.param("id");
+    if (match?.entry.source !== "service") return context.notFound();
+    const id = match.entry.id;
     const source = serviceForEvents(id);
     if (!source) return context.notFound();
     validatePageFilters(context);
     const cached = data.service(id);
     const service = { id, title: source.title, health: source.health, availability: cached?.status.availability ?? "unknown" as const, detail: cached?.status.detail ?? "", actions: cached?.actions ?? [], endpoints: cached?.endpoints ?? [], page: site.pages().page("service", id) ?? `/services/${encodeURIComponent(id)}` };
+    // Rendering reads the indexed histories and metadata, never the services themselves.
+    const sourceIds = source instanceof CameraLabelFeed && site.getService("photo-labels") ? [id, "photo-labels"] : [id];
+    const unique = <T>(values: readonly T[]) => [...new Set(values)];
+    const matches = compileEventFilter(eventFilter(context, true));
     context.header("Cache-Control", "no-store");
     return context.html(renderServicePage({
       ctx: pageContext(context),
       service,
-      subjects: subjectViews(source.subjects()),
+      subjects: subjectViews(unique(sourceIds.flatMap(sourceId => site.serviceSubjects(sourceId)))),
       types: eventTypeViews(),
-      detectionLabels: source.detectionLabels(),
-      events: !context.get("principal") || context.get("principal")!.allowsSite("read") ? source.events(100, eventFilter(context, true)) : [],
+      detectionLabels: unique(sourceIds.flatMap(sourceId => site.serviceDetectionLabels(sourceId))).sort(),
+      events: !context.get("principal") || context.get("principal")!.allowsSite("read")
+        ? (source instanceof CameraLabelFeed ? sourceIds.flatMap(sourceId => data.events.service(sourceId)).sort(labelEventOrder) : data.events.service(id)).filter(matches).slice(0, 100)
+        : [],
       actions: service.actions,
     }));
   });
@@ -972,7 +1026,10 @@ export function createApp(
 
   /** Which devices a service's events are about, named as the site names them. */
   const subjectViews = (subjects: readonly string[]) =>
-    subjects.map((subject) => { const device = site.view(subject); return { id: subject, name: device?.name ?? subject, ...(device ? { page: device.page } : {}) }; });
+    [...new Set(subjects)].map((subject) => {
+      const owner = site.view(subject) ?? data.topology().node(subject);
+      return { id: subject, name: owner?.name ?? subject, ...(owner?.page ? { page: owner.page } : {}) };
+    });
 
   /**
    * Every supported type stays available in the picker, including quiet
@@ -1007,14 +1064,14 @@ export function createApp(
       const filter = eventFilter(context);
       try {
         const page = service.page(Number(context.req.query("limit") ?? 100), context.req.query("before"), filter);
-        return checkedJson(context, validators.serviceEventsResponse, { serviceId: id, ...page,
+        return checkedJson(context, validators.serviceEventsResponse, { serviceId: id, ...page, events: page.events.map(publicEvent),
           subjects: [...service.subjects()], ...service.detectionOptions(detectionSubjects(filter)), types: [...new Set(page.events.map(event => event.type))] });
       } catch { return errorJson(context, 400, "invalid_request", "Invalid label history page"); }
     }
     const events = service.events(Number(context.req.query("limit") ?? "") || undefined, eventFilter(context));
     return checkedJson(context, validators.serviceEventsResponse, {
       serviceId: id,
-      events: [...events],
+      events: events.map(publicEvent),
       subjects: [...service.subjects()],
       types: [...new Set(service.events().map((event) => event.type))],
     });
@@ -1024,7 +1081,7 @@ export function createApp(
   // Including it here would show every event twice.
   const eventSources = () => site.services.filter((service) => service.id !== "mqtt-broker");
   /** Every recent event HomeTruth and its services recorded, newest first. */
-  const allEvents = (limit = 200, filter: EventFilter = {}) => [
+  const allEvents = (limit = 200, filter: EventFilter = {}) => eventHistory ? eventHistory.page(limit, filter).events : [
     ...deviceLogs.recentAll(undefined, filter),
     ...eventSources().flatMap((service) => service.events(undefined, filter)),
   ]
@@ -1035,7 +1092,7 @@ export function createApp(
   /** A live aggregate tail: the matching backlog, then every matching event as it is recorded. */
   const eventStream = (context: Context<AppEnvironment>, filter: EventFilter): Response => {
     const encoder = new TextEncoder();
-    const frame = (event: unknown) => encoder.encode(`event: service-event\ndata: ${JSON.stringify(event)}\n\n`);
+    const frame = (event: ServiceEvent) => encoder.encode(`event: service-event\ndata: ${JSON.stringify(publicEvent(event))}\n\n`);
     let unsubscribes: (() => void)[] = [];
     const stop = () => {
       for (const unsubscribe of unsubscribes) unsubscribe();
@@ -1045,7 +1102,7 @@ export function createApp(
       start(controller) {
         controller.enqueue(encoder.encode("retry: 2000\n\n"));
         for (const event of [...allEvents(200, filter)].reverse()) controller.enqueue(frame(event));
-        const listener = (event: unknown) => {
+        const listener = (event: ServiceEvent) => {
           try { controller.enqueue(frame(event)); } catch { /* Client already gone. */ }
         };
         unsubscribes = [deviceLogs.subscribeAll(listener, filter), ...eventSources().map((service) => service.subscribe(listener, filter))];
@@ -1060,9 +1117,17 @@ export function createApp(
 
   app.get("/api/events", (context) => {
     const limit = Number(context.req.query("limit") ?? "") || 200;
-    const events = allEvents(limit, eventFilter(context));
+    const before = context.req.query("before");
+    let page: { events: readonly ArchivedEvent[]; nextCursor?: string };
+    try { page = eventHistory ? eventHistory.page(limit, eventFilter(context), before) : { events: allEvents(limit, eventFilter(context)) }; }
+    catch (error) {
+      if (error instanceof Error && error.message === "Invalid event cursor") return errorJson(context, 400, "invalid_request", error.message);
+      throw error;
+    }
+    const { events } = page;
     return checkedJson(context, validators.eventsResponse, {
-      events,
+      events: events.map(publicEvent),
+      ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
       subjects: [...new Set(events.flatMap((event) => event.subject ? [event.subject] : []))],
       types: [...new Set(events.map((event) => event.type))],
     });
@@ -1077,7 +1142,7 @@ export function createApp(
     const events = eventsForDevice(id, limit, eventFilter(context));
     return checkedJson(context, validators.deviceEventsResponse, {
       deviceId: id,
-      events,
+      events: events.map(publicEvent),
       types: [...new Set(events.map((event) => event.type))],
     });
   });
@@ -1137,9 +1202,9 @@ export function createApp(
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
         controller.enqueue(encoder.encode("retry: 2000\n\n"));
-        for (const event of [...service.events(undefined, filter)].reverse()) controller.enqueue(sseFrame("service-event", event));
+        for (const event of [...service.events(undefined, filter)].reverse()) controller.enqueue(sseFrame("service-event", publicEvent(event)));
         const stopEvents = service.subscribe((event) => {
-          try { controller.enqueue(sseFrame("service-event", event)); } catch { /* Client already gone. */ }
+          try { controller.enqueue(sseFrame("service-event", publicEvent(event))); } catch { /* Client already gone. */ }
         }, filter);
         // Counts follow the camera, even when a new event does not match checked labels.
         let stopCounts: (() => void) | undefined;
@@ -1587,7 +1652,29 @@ export function createApp(
   app.get("/api/buttons/:id/workflow", (context) => {
     const device = workflowButtonOf(context.req.param("id"));
     if (!device) return errorJson(context, 404, "not_found", "No Workflow Button with that id is defined in devices.yml");
-    return context.json({ id: device.id, name: device.name, workflow: device.button.workflow, run: device.button.run, runs: device.button.runs });
+    return context.json({ id: device.id, name: device.name, workflow: device.button.workflow, run: device.button.run, runs: device.button.runs, catalog: workflowCatalog(visible(context, site.devices, d => d.id)), schema: workflowSchema });
+  });
+
+  app.post("/api/buttons/:id/workflow/preview", async context => {
+    if (!workflowButtonOf(context.req.param("id"))) return errorJson(context, 404, "not_found", "No Workflow Button with that id");
+    const input = await context.req.json().catch(() => undefined);
+    if (!input || typeof input !== "object" || !("workflow" in input)) return errorJson(context, 400, "invalid_request", "A workflow is required");
+    try {
+      const workflow = (input as { workflow: WorkflowDefinition }).workflow;
+      if ((input as { draft?: boolean }).draft === true) { validateWorkflowShape(workflow); return context.json({ valid: true }); }
+      validateWorkflowForSite(workflow, context.req.param("id"));
+      const principal = context.get("principal");
+      if (principal && referencedWorkflowTargets(workflow).some(id => !principal.reaches(id))) return errorJson(context, 403, "forbidden", "Workflow targets are outside this token’s scope");
+      const assumption = (input as { assumption?: string }).assumption;
+      if (assumption !== undefined && !["true", "false", "unknown"].includes(assumption)) return errorJson(context, 400, "invalid_request", "Choose true, false, or unknown for predicate assumptions");
+      return context.json({ valid: true, ...(assumption ? { simulation: await simulateWorkflow(workflow, assumption === "unknown" ? undefined : assumption === "true") } : {}) });
+    } catch (error) { return errorJson(context, 400, "invalid_workflow", error instanceof Error ? error.message : String(error)); }
+  });
+
+  app.post("/api/buttons/:id/workflow/cancel", context => {
+    const device = workflowButtonOf(context.req.param("id"));
+    if (!device) return errorJson(context, 404, "not_found", "No Workflow Button with that id");
+    return context.json({ cancelled: device.button.cancelRun(), run: device.button.run });
   });
 
   app.put("/api/buttons/:id/workflow", async (context) => {
@@ -1597,7 +1684,10 @@ export function createApp(
     const input = await requestJson(context);
     if (!validators.workflowButtonUpdateRequest(input)) return errorJson(context, 400, "invalid_request", describeValidationErrors(validators.workflowButtonUpdateRequest.errors));
     const workflow = (input as WorkflowButtonUpdateRequest).workflow as unknown as WorkflowDefinition;
-    try { validateWorkflowForSite(workflow); }
+    try { validateWorkflowForSite(workflow, context.req.param("id"));
+      const principal = context.get("principal");
+      if (principal && referencedWorkflowTargets(workflow).some(id => !principal.allowsDevice(id, "write"))) return errorJson(context, 403, "forbidden", "Workflow targets are outside this token’s write scope");
+    }
     catch (error) { return errorJson(context, 400, "invalid_workflow", error instanceof Error ? error.message : String(error)); }
     await deviceConfigWriter.setWorkflow(device.id, workflow);
     return context.json({ id: device.id, workflow });
@@ -1609,8 +1699,11 @@ export function createApp(
     if (!validators.workflowButtonCreateRequest(input)) return errorJson(context, 400, "invalid_request", describeValidationErrors(validators.workflowButtonCreateRequest.errors));
     const request = input as WorkflowButtonCreateRequest;
     if (site.get(request.id)) return errorJson(context, 409, "already_exists", `A device with id "${request.id}" already exists`);
-    const workflow = (request.workflow ?? { start: "start", nodes: [{ id: "start", type: "end", label: "Complete" }] }) as unknown as WorkflowDefinition;
-    try { validateWorkflowForSite(workflow); }
+    const workflow = (request.workflow ?? emptyWorkflow(request.name)) as unknown as WorkflowDefinition;
+    try { validateWorkflowForSite(workflow, context.req.param("id"));
+      const principal = context.get("principal");
+      if (principal && referencedWorkflowTargets(workflow).some(id => !principal.allowsDevice(id, "write"))) return errorJson(context, 403, "forbidden", "Workflow targets are outside this token’s write scope");
+    }
     catch (error) { return errorJson(context, 400, "invalid_workflow", error instanceof Error ? error.message : String(error)); }
     await deviceConfigWriter.add({
       id: request.id,
@@ -1917,7 +2010,7 @@ export function createApp(
     context.header("Cache-Control", "no-store");
     const schemaId = entry.schema.$id;
     const capabilityKind = Object.entries(CAPABILITY_KIND_SCHEMA_IDS).find(([, id]) => id === schemaId)?.[0];
-    const instances = site.list().flatMap((device) => [
+    const instances = visible(context, site.list(), device => device.id).flatMap((device) => [
       ...(device.schemaId === schemaId ? [{ device }] : []),
       ...(capabilityKind && device.capabilities.includes(capabilityKind as CapabilityKind) && device.schemaId !== schemaId ? [{ device }] : []),
       ...(device.sensors ?? []).filter((sensor) => sensor.schemaId === schemaId).map((sensor) => ({ device, sensorName: sensor.name })),
@@ -1970,7 +2063,7 @@ export function createApp(
   // Last, and reading `app.routes` only when asked: the description is of the
   // app as it finally stands, including whatever was mounted conditionally
   // above and including these two routes themselves.
-  app.route("/", openApiRoutes(site, () => app.routes, trustLocalNetwork));
+  app.route("/", openApiRoutes(site, () => app.routes, trustLocalNetwork, hub));
 
   app.notFound((context) => errorJson(context, 404, "not_found", "Route not found"));
 

@@ -1,3 +1,4 @@
+import { definition, action, end } from "../../tests/fixtures/workflow";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -106,16 +107,9 @@ describe("FileDeviceConfigWriter", () => {
     await writeFile(path, "# keep this\nschemaVersion: 2\ndevices:\n  - id: relay\n    model: shelly-plus-1\n    config: { host: 10.77.0.2 }\n", "utf8");
     let reloads = 0;
     const writer = new FileDeviceConfigWriter(path, async () => { reloads += 1; });
-    const initial = { start: "on", nodes: [
-      { id: "on", type: "action" as const, device: "relay", control: "turnOn", next: "off" },
-      { id: "off", type: "end" as const },
-    ] };
+    const initial = definition([action("on", "off", "off"), end("off")]);
     await writer.add({ id: "scene", name: "Scene", model: "workflow-button", config: { workflow: initial } });
-    const updated = { start: "wait", nodes: [
-      { id: "wait", type: "delay" as const, durationMs: 300_000, next: "on" },
-      { id: "on", type: "action" as const, device: "relay", control: "turnOn", next: "off" },
-      { id: "off", type: "end" as const },
-    ] };
+    const updated = definition([{ id: "wait", type: "delay", durationMs: 300000, next: "on" }, action("on", "off", "off"), end("off")]);
     await writer.setWorkflow("scene", updated);
     const text = await readFile(path, "utf8");
     expect(text).toContain("# keep this");

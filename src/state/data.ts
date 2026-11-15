@@ -6,7 +6,6 @@ import type { NetworkAddressClient } from "../network/adapter";
 import { buildGraph, collectSnapshot } from "../graph/build";
 import type { Graph as Topology } from "../graph/graph";
 import type { DiscoveredSensor } from "../graph/instance-graph";
-import type { MatterBridgeSettings, MatterSettingsSource } from "../integrations/matter/settings";
 import { MemoryKindleConfigStore, type KindleConfigStore, type KindleSettings } from "../kindle/store";
 import type { SavedSignalCode } from "../schemas";
 import type { HomeTruthObject } from "../schemas";
@@ -25,7 +24,6 @@ export interface StateDataSources {
   readonly signals: SignalCodeStore;
   readonly kindle: KindleConfigStore;
   readonly tags: TagStore;
-  readonly matter?: MatterSettingsSource;
   readonly eventSources?: readonly Service[];
   readonly deviceLogs?: DeviceEventLogs;
   readonly networkClients?: () => Promise<readonly NetworkAddressClient[]>;
@@ -42,8 +40,6 @@ export class StateData {
   readonly #signals = new Map<string, readonly SavedSignalCode[]>();
   readonly #sensors = new Map<string, readonly DiscoveredSensor[]>();
   #kindle: KindleSettings = new MemoryKindleConfigStore().snapshot();
-  #matter: MatterBridgeSettings | undefined;
-  #matterError: string | undefined;
   #topology: Topology | undefined;
   readonly #groups = new Map<string, GroupSnapshot>();
   readonly #releaseObservation: () => void;
@@ -117,9 +113,6 @@ export class StateData {
     return snapshot;
   }
   kindleSettings(): KindleSettings { return this.#kindle; }
-  matterSettings(): { value?: MatterBridgeSettings; error?: string } {
-    return { ...(this.#matter ? { value: this.#matter } : {}), ...(this.#matterError ? { error: this.#matterError } : {}) };
-  }
   invalidate(): void {
     this.#topology = undefined;
     this.#groups.clear();
@@ -167,7 +160,7 @@ export class StateData {
   }
 
   private async refreshSources(): Promise<void> {
-    const { site, kindle, matter } = this.sources;
+    const { site, kindle } = this.sources;
     this.sources.tags.refresh();
     this.events.refresh();
     for (const service of site.services) this.refreshService(service);
@@ -188,11 +181,6 @@ export class StateData {
     reads.push(kindle.load().then(settings => {
       if (this.#closed || kindleEpoch !== this.#kindleEpoch) return;
       if (settings.revision !== this.#kindle.revision) { this.#kindle = settings; this.invalidate(); }
-    }));
-    if (matter) reads.push(matter.read().then(value => {
-      if (!this.#closed) { this.#matter = value; this.#matterError = undefined; }
-    }, error => {
-      if (!this.#closed) this.#matterError = error instanceof Error ? error.message : String(error);
     }));
     const results = await Promise.allSettled(reads);
     for (const result of results) if (result.status === "rejected") {

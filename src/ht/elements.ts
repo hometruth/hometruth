@@ -2,7 +2,7 @@
  * What `ht` knows about an install it has never seen before.
  *
  * Nothing here is a list of devices, capabilities or controls: those come from
- * the install, every time. An id names a device, a group or a service; the
+ * the install, every time. A friendly address names one element; the
  * install says which, what it is made of, and what may be done to it. The
  * value a control takes is read from the action document the capability
  * publishes — `setBrightness` says `0–100 percent` because the light said so,
@@ -10,8 +10,8 @@
  */
 import { HttpError, UsageError, type Client } from "./client.ts";
 import { controlCommand } from "./commands";
-import { isElementKey, type ElementKind } from "../tags/identity";
-import type { GraphNode } from "../graph/types";
+import type { ElementKind } from "../tags/identity";
+import type { ElementContract } from "../client/index";
 export type { ElementKind } from "../tags/identity";
 
 /** One thing that may be done to an element, as the install describes it. */
@@ -44,6 +44,9 @@ export interface Section {
 }
 
 export interface Element {
+  readonly address?: string;
+  readonly commandPage?: string;
+  readonly stateNode?: string;
   readonly page?: string;
   readonly kind: ElementKind;
   readonly id: string;
@@ -105,28 +108,31 @@ interface ServiceRow {
   readonly actions?: readonly { readonly id: string; readonly until?: string }[];
 }
 
-/**
- * Which of the install's element kinds this id names. Asked in the order the
- * ids are most likely to be used, and each miss is a cheap 404; an install
- * with none of them says so once, rather than three times.
- */
-export async function resolve(api: Client, id: string): Promise<Element> {
-  if (isElementKey(id)) {
-    const graph = await api.get(`/api/graph/${encodeURIComponent(id)}`) as { nodes: { node: GraphNode }[] };
-    const node = graph.nodes.find(entry => entry.node.id === id)?.node;
-    if (!node) throw new UsageError(`No element called "${id}"`);
-    return { kind: node.kind, id, name: node.name, page: node.page || `/elements/${id}`, status: "", what: node.context, facts: [], sections: [], controls: [], body: node, ...(node.stateNode ? { node: node.stateNode } : {}) };
+/** Resolve exactly one current public address; installation IDs are internal metadata. */
+export async function resolve(api: Client, address: string, readState = true): Promise<Element> {
+  let contract: ElementContract;
+  try { contract = await api.get(`/api/inventory/${encodeURIComponent(address)}`) as ElementContract; }
+  catch (error) {
+    if (error instanceof HttpError && error.status === 404) throw new UsageError(`Nothing here is called "${address}". Run "ht ls" or "ht find <text>" for current addresses`);
+    throw error;
   }
-  const device = await optional<DeviceDetail>(api.get(`/api/devices/${encodeURIComponent(id)}`));
-  if (device) return deviceElement(device);
-  const group = await optional<GroupDetail>(api.get(`/api/device-groups/${encodeURIComponent(id)}`));
-  if (group) return groupElement(group);
-  const services = await api.get("/api/services") as { services?: readonly ServiceRow[] };
-  const service = (services.services ?? []).find((candidate) => candidate.id === id);
-  if (service) return serviceElement(service);
-  const tagged = await optional<{ tag: { id: string; name: string; value: string }; page: string }>(api.get(`/api/tags/${encodeURIComponent(id)}`));
-  if (tagged) return { kind: "tag", id, name: [tagged.tag.name, tagged.tag.value].filter(Boolean).join(": "), page: tagged.page, status: "", what: "", facts: [], sections: [], controls: [], body: tagged };
-  throw new UsageError(`Nothing here is called "${id}". Run "ht ls" for the devices, "ht ls group" or "ht ls service"`);
+  const entry = contract.element;
+  const identity = { address: entry.address, commandPage: entry.commandPage, page: entry.page,
+    ...(entry.stateNode ? { stateNode: entry.stateNode } : {}), ...(entry.stateAddress ? { node: entry.stateAddress } : {}) };
+  const encoded = encodeURIComponent(entry.address);
+  if (readState && entry.kind === "device") return { ...deviceElement(await api.get(`/api/devices/${encoded}`) as DeviceDetail), ...identity };
+  if (readState && (entry.kind === "group" || entry.kind === "group-switch")) {
+    const read = contract.methods.find(method => method.name === "read" && method.transport.method === "GET");
+    if (!read) throw new UsageError(`${entry.name} does not publish a readable state`);
+    return { ...groupElement(await api.get(read.transport.path) as GroupDetail), ...identity };
+  }
+  if (readState && entry.kind === "service") {
+    const services = await api.get("/api/services") as { services?: readonly ServiceRow[] };
+    const service = services.services?.find(candidate => candidate.id === entry.id);
+    if (service) return { ...serviceElement(service), ...identity };
+  }
+  return { ...identity, kind: entry.kind as ElementKind, id: entry.id, name: entry.name, status: "", what: entry.context,
+    facts: [], sections: [], controls: [], body: entry };
 }
 
 /**
@@ -141,27 +147,6 @@ export function elementFrom(body: unknown, kind: "device" | "group"): Element | 
   } catch {
     return undefined;
   }
-}
-
-async function optional<T>(request: Promise<unknown>): Promise<T | undefined> {
-  try {
-    return await request as T;
-  } catch (error) {
-    if (error instanceof HttpError && error.status === 404) return undefined;
-    throw error;
-  }
-}
-
-/** Where a control on this element is invoked, and what the install expects in the body. */
-export function invoke(api: Client, element: Element, control: string, value: unknown, confirm: boolean): Promise<unknown> {
-  if (element.kind === "service") {
-    return api.post(`/api/services/${encodeURIComponent(element.id)}/actions/${encodeURIComponent(control)}`, {});
-  }
-  const base = element.kind === "group" ? "/api/device-groups" : "/api/devices";
-  return api.post(`${base}/${encodeURIComponent(element.id)}/controls/${encodeURIComponent(control)}`, {
-    ...(value !== undefined ? { value } : {}),
-    ...(confirm ? { confirmed: true } : {}),
-  });
 }
 
 function deviceElement(detail: DeviceDetail): Element {

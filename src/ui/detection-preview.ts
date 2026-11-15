@@ -37,8 +37,8 @@ export const DETECTION_PREVIEW_SCRIPT = String.raw`
             previewCacheBytes -= cached.bytes; previewCache.delete(cacheKey); cached = null;
           }
           if (!cached) {
-            const response = await fetch("/api/services/frigate/previews/" + encodeURIComponent(camera) + "/" + encodeURIComponent(objectId)
-              + "?at=" + encodeURIComponent(frameTime), { signal: AbortSignal.any([signal, AbortSignal.timeout(35000)]) });
+            const response = await fetch(ht.apiPath("/api/services/frigate/previews/" + encodeURIComponent(camera) + "/" + encodeURIComponent(objectId)
+              + "?at=" + encodeURIComponent(frameTime)), { signal: AbortSignal.any([signal, AbortSignal.timeout(35000)]) });
             if (!response.ok) throw new Error(ht.t(response.status === 503 ? "events.previewAccess" : "events.previewUnavailable"));
             const value = await response.json();
             if (!Array.isArray(value.frames) || value.frames.length < 2 || value.frames.length > 10 || value.playbackRate !== 5

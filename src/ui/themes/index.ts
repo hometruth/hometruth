@@ -3,15 +3,16 @@
  * the env default, and `PageContext`; adding a theme is one folder and one
  * line here.
  */
+import { wright } from "./wright/theme.ts";
 import { brutal } from "./brutal/theme.ts";
 import { euclid } from "./euclid/theme.ts";
 import { swiss } from "./swiss/theme.ts";
 import type { ThemeDefinition } from "./theme.ts";
 
-export const THEMES = { euclid, swiss, brutal } as const satisfies Record<string, ThemeDefinition>;
+export const THEMES = { wright, euclid, swiss, brutal } as const satisfies Record<string, ThemeDefinition>;
 export type Theme = keyof typeof THEMES;
 export const THEME_IDS = Object.keys(THEMES) as readonly Theme[];
-export const DEFAULT_THEME: Theme = "euclid";
+export const DEFAULT_THEME: Theme = "wright";
 
 export function isTheme(value: unknown): value is Theme {
   return typeof value === "string" && Object.hasOwn(THEMES, value);

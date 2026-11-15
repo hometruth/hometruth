@@ -45,6 +45,8 @@ export interface HtRuntime {
   readonly number: (value: number, options?: Intl.NumberFormatOptions) => string;
   /** The catalog word for an availability; anything unrecognised reads as unknown. */
   readonly availability: (value: unknown) => string;
+  /** Resolve internal object paths to the current friendly API selectors. */
+  readonly apiPath: (path: string) => string;
   /** Same-origin JSON request; rejects with the API's `error.message`. */
   readonly request: (url: string, init?: RequestInit) => Promise<unknown>;
   readonly say: (element: unknown, message: string, tone?: Tone) => void;

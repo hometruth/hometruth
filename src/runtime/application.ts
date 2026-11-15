@@ -1,5 +1,7 @@
+import { EventHistory } from "../models/event-history";
 import { HealthService } from "../health/service";
 import { HealthStore } from "../health/store";
+import { advisorSettings, HealthAdvisor } from "../health/advisor";
 import { TagStore } from "../tags/store";
 import { FilterStore } from "../models/filter-store";
 import { FilterMatches } from "../models/filter-matches";
@@ -29,16 +31,18 @@ import { DeviceEventLogs } from "../models/device-event-log";
 import { EventBusForwarder } from "../event-bus";
 import { createHueSiteService } from "../vendors/hue/site-service";
 import { createRingSiteService } from "../vendors/ring/site-service";
+import { createRachioSiteService } from "../vendors/rachio/site-service";
+import { createWhiskerSiteService } from "../vendors/whisker/site-service";
 import { HueProxySiteService } from "../integrations/hue-proxy/site-service";
 import { GoveeReceiver } from "../vendors/govee/receiver";
 import { createSonosMediaService } from "../vendors/sonos/site-service";
 import { DogAnnouncer } from "../automations/dog-announcer";
 import { FileDogConfigStore } from "../automations/dog-config";
 import { dogSiteDependencies } from "../automations/dog-site";
-import { MemoryOptimisticSwitchStateStore } from "../devices/composites/optimistic-switch";
+import { MemoryOptimisticSwitchStateStore, SqliteOptimisticSwitchStateStore } from "../devices/composites/optimistic-switch";
 import { FileDeviceConfigWriter } from "../config/device-writer";
-import { FileMatterSettingsSource } from "../integrations/matter/settings";
-import { MatterBridgeService } from "../integrations/matter/site-service";
+import { BridgeStore } from "../bridges/store";
+import { BridgeService } from "../bridges/service";
 import { RevealPhotoArchive } from "../vendors/reveal/photo-archive";
 import { startRevealPhotoPolling } from "../vendors/reveal/polling";
 import { FrigateFrameLabeler } from "../vendors/frigate/frame-labeler";
@@ -153,19 +157,25 @@ export async function prepareApplication(port: number) {
     store: secretStore,
     onError: message => console.error(JSON.stringify({ event: "ring_token_store_failed", message })),
   });
+  /** Rachio's cloud: a read cache with no open connection, so preview and live share it. */
+  const rachio = config.mode === "test" ? undefined : createRachioSiteService(secretsFile);
   const signalCodes = config.mode === "test" ? new MemorySignalCodeStore() : new FileSignalCodeStore();
-  const optimisticSwitchStates = new MemoryOptimisticSwitchStateStore();
+  const optimisticSwitchStates = config.mode === "test" ? new MemoryOptimisticSwitchStateStore() : new SqliteOptimisticSwitchStateStore();
+  if (optimisticSwitchStates instanceof SqliteOptimisticSwitchStateStore) lifecycle.defer(() => optimisticSwitchStates.close());
   const sonosMedia = createSonosMediaService(() => port);
   const previewCamera = createDefaultCameraService();
   const previewSite = Site.fromConfig(devicesConfig, {
     signalCodes, optimisticSwitchStates, sonosMedia,
     tkenpro: { cameraService: previewCamera },
     ...(hue ? { hue: { clip: hue.clip, session: hue.session } } : {}),
+    ...(rachio ? { rachio } : {}),
   }, secretsFile);
   lifecycle.defer(() => previewCamera.close());
   lifecycle.defer(() => Promise.allSettled(previewSite.devices.map(device => device.close?.())));
   lifecycle.defer(() => hue?.session.isConnected ? hue.session.disconnect() : undefined);
   lifecycle.defer(() => ring?.stop());
+  const whisker = config.mode === "test" ? undefined : createWhiskerSiteService(secretsFile);
+  lifecycle.defer(() => whisker?.stop());
   // One state graph for the worker's whole life: the preview app binds it to the
   // preview site, activation rebinds it to the live site and drops the preview's records.
   const hub = new StateHub({ generation: process.env.HOMETRUTH_GENERATION ?? "dev" });
@@ -347,13 +357,18 @@ export async function prepareApplication(port: number) {
       lifecycle.defer(() => photoLabelEvents?.stop());
       lifecycle.defer(() => dogAnnouncer.stop());
 
-      const matterBridge = config.mode === "test" ? undefined : new MatterBridgeService({ port });
-      const health = new HealthService({ store: new HealthStore(config.mode === "test" ? ":memory:" : ".hometruth/health.sqlite"),
+      const bridgeStore = new BridgeStore(config.mode === "test" ? ":memory:" : ".hometruth/bridges.sqlite");
+      lifecycle.defer(() => bridgeStore.close());
+      const appleBridges = new BridgeService(bridgeStore);
+      const healthStore = new HealthStore(config.mode === "test" ? ":memory:" : ".hometruth/health.sqlite");
+      const advisor = config.mode === "test" ? undefined : advisorSettings(secretsFile);
+      const health = new HealthService({ store: healthStore, ...(advisor ? { advisor: new HealthAdvisor(advisor, healthStore) } : {}),
         devices: () => liveSite.site.devices, services: () => liveSite.site.services });
       lifecycle.defer(() => health.stop());
       const siteServices: SiteServices = {
+        networkAdapter: getNetworkAdapter,
         health,
-        ...(matterBridge ? { matterBridge } : {}),
+        appleBridges,
         ...(hueProxy ? { hueProxy } : {}),
         ...(govee ? { govee } : {}),
         tkenpro: {
@@ -365,6 +380,8 @@ export async function prepareApplication(port: number) {
         ...(tkenpro.cloudServices ? { tkenproCloud: tkenpro.cloudServices } : {}),
         ...(hue ? { hue: { clip: hue.clip, session: hue.session } } : {}),
         ...(ring ? { ring } : {}),
+        ...(whisker ? { whisker } : {}),
+        ...(rachio ? { rachio } : {}),
         sonosMedia,
         signalCodes,
         optimisticSwitchStates,
@@ -449,9 +466,17 @@ export async function prepareApplication(port: number) {
       });
       lifecycle.defer(() => eventBus.stop());
       const publishEvent = eventBus.publish;
-      const deviceLogs = new DeviceEventLogs(200, undefined, event => { publishEvent(event); filterMatches.accept(event); });
+      const eventHistory = new EventHistory(config.mode === "test" ? ":memory:" : ".hometruth/events.sqlite");
+      lifecycle.defer(() => eventHistory.close());
+      const deviceLogs = new DeviceEventLogs(200, undefined, event => { eventHistory.save(event); publishEvent(event); filterMatches.accept(event); });
       const eventBusUnsubscribers: (() => void)[] = [];
       lifecycle.defer(() => { for (const unsubscribe of eventBusUnsubscribers) unsubscribe(); });
+      if (photoLabelEvents) await photoLabelEvents.prepare();
+      for (const service of site.services) {
+        if (service.id === "mqtt-broker") continue;
+        eventBusUnsubscribers.push(service.subscribe(event => eventHistory.save(event)));
+        for (const event of service.events(Number.MAX_SAFE_INTEGER)) eventHistory.save(event);
+      }
       // Evaluate each original event once, independent of MQTT and browser subscriptions.
       // connect() subscribes to future events only; startup history is never evaluated.
       filterMatches.connect(site.services.filter(service => service.id !== mqttBroker?.id));
@@ -480,7 +505,7 @@ export async function prepareApplication(port: number) {
         networkRecovery,
         deviceLogs,
         deviceConfigWriter,
-        new FileMatterSettingsSource(),
+        appleBridges,
         kindleConfig,
         config.mode === "test" ? undefined : new WifiAdmissionService(),
         tags,
@@ -488,6 +513,7 @@ export async function prepareApplication(port: number) {
         enforce,
         graphStore,
         filters,
+        eventHistory,
       );
 
       await hub.data.refresh();
@@ -508,10 +534,10 @@ export async function prepareApplication(port: number) {
 
       if (hueProxy) lifecycle.background("hue-proxy", () => hueProxy.start());
       if (config.mode !== "test") lifecycle.background("dog-announcer", () => dogAnnouncer.start());
-      if (matterBridge) {
-        lifecycle.defer(() => matterBridge.stop());
+      if (config.mode !== "test") {
+        lifecycle.defer(() => appleBridges.stop());
         // Startup runs in its own child and never blocks the HTTP application becoming ready.
-        matterBridge.start();
+        appleBridges.start();
       }
       return app;
     },

@@ -825,7 +825,7 @@ const DASHBOARD_SCRIPT = String.raw`
     // The status line is the page's one voice: every outcome lands there, in its tone.
     const announce = (message, kind) => setStatus(message, kind === "error" ? "error" : kind === "busy" ? "busy" : "ok");
     const post = async (url, body, options) => {
-      const response = await fetch(url, {
+      const response = await fetch(ht.apiPath(url), {
         method: "POST", credentials: "same-origin", cache: "no-store", keepalive: Boolean(options && options.keepalive),
         headers: { "accept": "application/json", "content-type": "application/json" }, body: JSON.stringify(body),
       });
@@ -1113,7 +1113,7 @@ const DASHBOARD_SCRIPT = String.raw`
       window.clearTimeout(firstFrameTimer);
       const encodedId = encodeURIComponent(deviceId());
       viewerImage.hidden = false;
-      viewerImage.src = kind === "snapshot" ? "/api/camera/devices/" + encodedId + "/snapshot?t=" + Date.now() : "/api/camera/devices/" + encodedId + "/stream.mjpeg";
+      viewerImage.src = ht.apiPath(kind === "snapshot" ? "/api/camera/devices/" + encodedId + "/snapshot?t=" + Date.now() : "/api/camera/devices/" + encodedId + "/stream.mjpeg");
       viewerImage.alt = t(kind === "snapshot" ? "cam.alt.still" : "cam.alt.live", { name: deviceName() });
       if (viewerPlaceholder instanceof HTMLElement) viewerPlaceholder.hidden = true;
       setViewerMode(t(kind === "snapshot" ? "cam.mode.still" : "camera.live"));
@@ -1147,7 +1147,7 @@ const DASHBOARD_SCRIPT = String.raw`
       if (!(viewerImage instanceof HTMLImageElement) || !requireDevice()) return;
       if (snapshotButton instanceof HTMLButtonElement) snapshotButton.disabled = true;
       try {
-        const response = await fetch("/api/camera/devices/" + encodeURIComponent(deviceId()) + "/snapshot?t=" + Date.now(), { credentials: "same-origin", cache: "no-store", headers: { "accept": "image/jpeg" } });
+        const response = await fetch(ht.apiPath("/api/camera/devices/" + encodeURIComponent(deviceId()) + "/snapshot?t=" + Date.now()), { credentials: "same-origin", cache: "no-store", headers: { "accept": "image/jpeg" } });
         if (!response.ok) {
           const payload = await response.json().catch(() => null);
           throw new Error(ht.errorOf(payload, t("camera.snapshotFailed")));
@@ -1242,7 +1242,7 @@ const DASHBOARD_SCRIPT = String.raw`
           if (AudioContextClass) {
             audio = document.createElement("audio");
             audio.preload = "none";
-            audio.src = "/api/camera/devices/" + encodeURIComponent(deviceId()) + "/audio.mp3?t=" + Date.now();
+            audio.src = ht.apiPath("/api/camera/devices/" + encodeURIComponent(deviceId()) + "/audio.mp3?t=" + Date.now());
             audioContext = new AudioContextClass();
             await audioContext.resume();
             const source = audioContext.createMediaElementSource(audio);
@@ -1337,7 +1337,7 @@ const DASHBOARD_SCRIPT = String.raw`
         listenButton.textContent = t("action.stop");
         listenButton.setAttribute("aria-pressed", "true");
         setStatus(t("cam.listen.connecting"), "busy");
-        viewerAudio.src = "/api/camera/devices/" + encodeURIComponent(deviceId()) + "/audio.mp3?t=" + Date.now();
+        viewerAudio.src = ht.apiPath("/api/camera/devices/" + encodeURIComponent(deviceId()) + "/audio.mp3?t=" + Date.now());
         try {
           await viewerAudio.play();
           announce(t("cam.listen.listening"));
@@ -1376,7 +1376,7 @@ const DASHBOARD_SCRIPT = String.raw`
         playbackPaused = false;
         setPlaybackButtons();
         viewerImage.hidden = false;
-        viewerImage.src = "/api/camera/devices/" + encodeURIComponent(deviceId()) + "/playback.mjpeg?at=" + encodeURIComponent(timestamp) + "&t=" + Date.now();
+        viewerImage.src = ht.apiPath("/api/camera/devices/" + encodeURIComponent(deviceId()) + "/playback.mjpeg?at=" + encodeURIComponent(timestamp) + "&t=" + Date.now());
         viewerImage.alt = t("cam.alt.recording", { name: deviceName() });
         if (viewerPlaceholder instanceof HTMLElement) viewerPlaceholder.hidden = true;
         setViewerMode(t("cam.mode.recording"));
@@ -1546,7 +1546,7 @@ const DASHBOARD_SCRIPT = String.raw`
       return bytes;
     };
     const sendTalkChunk = async (item) => {
-      const response = await fetch(talkbackUrl("audio"), { method: "POST", credentials: "same-origin", cache: "no-store", headers: { "accept": "application/json", "content-type": "application/octet-stream" }, body: item.bytes });
+      const response = await fetch(ht.apiPath(talkbackUrl("audio")), { method: "POST", credentials: "same-origin", cache: "no-store", headers: { "accept": "application/json", "content-type": "application/octet-stream" }, body: item.bytes });
       if (response.ok) return;
       const payload = await response.json().catch(() => null);
       throw new Error(ht.errorOf(payload, t("cam.talk.rejected")));
@@ -2052,7 +2052,7 @@ const DASHBOARD_SCRIPT = String.raw`
     });
 
     let activePtz = null;
-    const ptzRequest = (body, keepalive) => fetch(api.ptz, { method: "POST", credentials: "same-origin", cache: "no-store", keepalive: Boolean(keepalive), headers: { "accept": "application/json", "content-type": "application/json" }, body: JSON.stringify(body) });
+    const ptzRequest = (body, keepalive) => fetch(ht.apiPath(api.ptz), { method: "POST", credentials: "same-origin", cache: "no-store", keepalive: Boolean(keepalive), headers: { "accept": "application/json", "content-type": "application/json" }, body: JSON.stringify(body) });
     const issuePtzLease = () => {
       if (!activePtz) return;
       const current = activePtz;
@@ -2186,7 +2186,7 @@ export function renderCameraDashboardPage({ ctx, model, device }: CameraDashboar
   const streamAvailable = online && selectedDevice.stream === "available";
   const snapshotAvailable = online && selectedDevice.snapshot === "available";
   const playbackAvailable = online && playbackCapability?.availability === "available";
-  const streamUrl = selectedDevice ? `/api/camera/devices/${encodeURIComponent(selectedDevice.id)}/stream.mjpeg` : "";
+  const streamUrl = selectedDevice ? ctx.apiPath(`/api/camera/devices/${encodeURIComponent(selectedDevice.id)}/stream.mjpeg`) : "";
   const modelText = [selectedDevice?.model, selectedDevice?.firmware ? t("camera.firmware", { version: selectedDevice.firmware }) : undefined].filter(Boolean).join(" · ");
   const statusBase = statusLineBase(ctx, selectedDevice, model.network);
   const problems = statusProblems(selectedDevice, model.network);

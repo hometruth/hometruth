@@ -16,7 +16,7 @@ class NetworkDevice extends Device<{ host: string }> {
 
 test("network API reports fresh firewall and model-specific DNS states even when desired isolation is false", async () => {
   const device = new NetworkDevice();
-  const client = { mac: "02:00:00:00:00:20", address: device.config.host };
+  const client = { mac: "02:00:00:00:00:20", address: device.config.host, vlan: 30, ssid: "Example IoT" };
   let blocked = true;
   let redirected = true;
   const adapter: NetworkAdapter = {
@@ -44,10 +44,10 @@ test("network API reports fresh firewall and model-specific DNS states even when
   });
   const recovery = new DeviceNetworkRecovery({ adapter: () => adapter });
   const app = createApp(undefined, new Site([device]), undefined, undefined, isolation, recovery);
-  const response = await app.request("/api/devices/relay/network");
+  const response = await app.request("/api/devices/example-relay/network");
   expect(response.status).toBe(200);
   expect(await response.json()).toMatchObject({
-    deviceId: "relay", associated: true, isolated: true,
+    deviceId: "relay", associated: true, isolated: true, vlan: 30, ssid: "Example IoT",
     isolation: {
       scope: "hometruth", requested: false, internetBlock: "on", methods: ["internet-block", "dns-override"],
       dns: [{ domain: "vendor.example", overrideIp: "192.0.2.10", state: "on" }],
@@ -55,12 +55,14 @@ test("network API reports fresh firewall and model-specific DNS states even when
   });
   blocked = false;
   redirected = false;
-  const updated = await app.request("/api/devices/relay/network");
+  const updated = await app.request("/api/devices/example-relay/network");
   expect(updated.status).toBe(200);
   expect(await updated.json()).toMatchObject({
     isolated: false,
     isolation: { internetBlock: "off", methods: [], dns: [{ domain: "vendor.example", state: "off" }] },
   });
+  const settings = await (await app.request("/switches/example-relay/settings")).text();
+  expect(settings).toContain('data-device-network data-device-id="relay" data-can-isolate="true"');
 });
 
 test("network API still inspects internet blocking without the isolation service", async () => {
@@ -74,9 +76,12 @@ test("network API still inspects internet blocking without the isolation service
     internet: { async describe() { return "missing"; }, async set() { throw new Error("read only"); } },
   }) });
   const app = createApp(undefined, new Site([device]), undefined, undefined, undefined, recovery);
-  const response = await app.request("/api/devices/relay/network");
+  const response = await app.request("/api/devices/example-relay/network");
   expect(response.status).toBe(200);
   const status = await response.json();
   expect(status).toMatchObject({ isolated: false, isolation: { scope: "hometruth", internetBlock: "missing", methods: [], dns: [{ domain: "vendor.example", state: "unavailable" }] } });
   expect(status.isolation).not.toHaveProperty("requested");
+  expect(status).not.toHaveProperty("vlan");
+  const settings = await (await app.request("/switches/example-relay/settings")).text();
+  expect(settings).toContain('data-can-isolate="false"');
 });

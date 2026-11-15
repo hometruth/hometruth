@@ -69,6 +69,8 @@ describe("DeviceActionButton", () => {
   test("reports the target device's own reachability, not a status of its own", async () => {
     const reachable = new BlasterDevice([]);
     const online = new DeviceActionButton("candles-on", { device: reachable.id, control: "infraredBlaster.send", value: { code: "code" } }, reachable);
+    expect((await online.describe()).state).toEqual({ availability: "unknown" });
+    await reachable.describe();
     expect((await online.describe()).state).toEqual({ availability: "online" });
 
     const unreachableTransmitter: SignalTransmitter = { send: async () => {}, learn: async () => ({ code: "unused" }), probe: async () => { throw new Error("unreachable"); } };
@@ -80,6 +82,7 @@ describe("DeviceActionButton", () => {
     }
     const unreachable = new UnreachableBlasterDevice();
     const offline = new DeviceActionButton("candles-off", { device: unreachable.id, control: "infraredBlaster.send", value: { code: "code" } }, unreachable);
+    await unreachable.describe();
     expect((await offline.describe()).state).toEqual({ availability: "offline" });
   });
 });

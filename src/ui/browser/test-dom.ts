@@ -629,6 +629,7 @@ export function fakeRuntime(): HtRuntime {
     relativeTime: (value) => `relativeTime(${typeof value === "string" ? value : new Date(value).toISOString()})`,
     number: (value, options) => new Intl.NumberFormat("en", options).format(value),
     availability: (value) => t(`status.${value === "online" || value === "offline" || value === "degraded" ? value : "unknown"}` as "status.online"),
+    apiPath: path => path,
     request: () => Promise.reject(new Error("no request in tests")),
     say: () => {},
     live: (element, observedAt) => {

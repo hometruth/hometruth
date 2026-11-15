@@ -33,7 +33,7 @@ class TargetDevice extends Device {
 }
 
 describe("WorkflowButton device", () => {
-  test("provisions forward references and reports availability walked from its target devices", async () => {
+  test("provisions forward references and inherits target availability without probing", async () => {
     const config = parseDevicesConfig(`
 schemaVersion: 2
 devices:
@@ -42,16 +42,25 @@ devices:
     model: workflow-button
     config:
       workflow:
-        start: on
-        nodes:
-          - { id: on, type: action, device: relay, control: turnOn, next: off }
-          - { id: off, type: action, device: relay, control: turnOff, next: done }
-          - { id: done, type: end }
+        schemaVersion: 1
+        name: Example routine
+        description: Turn a relay on and off
+        runPolicy: ignoreWhileRunning
+        limits: { maxSteps: 100, maxDurationMs: 10000 }
+        graph:
+          entry: on
+          nodes:
+            - { id: on, type: action, action: { target: relay, operation: binarySwitch.turnOn, input: {} }, next: off, onError: failed }
+            - { id: off, type: action, action: { target: relay, operation: binarySwitch.turnOff, input: {} }, next: done, onError: failed }
+            - { id: done, type: end, outcome: success }
+            - { id: failed, type: end, outcome: failure }
   - { id: relay, model: workflow-target, config: {} }
 `);
     const devices = provision(config, [WORKFLOW_BUTTON, TARGET_MODEL], {});
     const workflow = devices[0] as WorkflowButtonDevice;
     expect(workflow).toBeInstanceOf(WorkflowButtonDevice);
+    expect((await workflow.button.describe()).state).toEqual({ availability: "unknown" });
+    await devices[1]!.describe();
     expect((await workflow.button.describe()).state).toEqual({ availability: "online" });
     await workflow.button.press();
     await new Promise((resolve) => setTimeout(resolve, 5));

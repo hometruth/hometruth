@@ -6,6 +6,7 @@ import { createLiveSite } from "../live-site";
 import { FileDeviceConfigWriter } from "../config/device-writer";
 import { DeviceNetworkRecovery } from "../network/recovery";
 import { createApp } from "./app";
+import { elementAddress } from "./test-addresses";
 
 const mac = "02:00:00:00:10:30";
 const yaml = [
@@ -64,7 +65,7 @@ test("rescan follows a saved MAC to a new subnet, rewrites only that host, and n
     expect(live.site.get("blaster")?.config).toEqual({ host: "10.77.0.77", timeoutMs: 100 });
     expect(live.site.macAddressOf("blaster")).toBe(mac);
     expect((await app.request("/api/network/rescan", { method: "POST", headers: { "content-type": "application/json", origin: "https://evil.example" }, body: "{}" })).status).toBe(403);
-    const one = await app.request("/api/devices/blaster-two/network/rescan", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+    const one = await app.request(`/api/devices/${await elementAddress(app, "device", "blaster-two")}/network/rescan`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
     expect(one.status).toBe(200);
     expect(await one.json()).toMatchObject({ message: expect.stringContaining("not on the network"), result: { deviceId: "blaster-two", outcome: "missing" } });
     expect((await app.request("/api/devices/nope/network/rescan", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).status).toBe(404);
@@ -82,7 +83,7 @@ test("a device that does not answer is a 502 on its detail route, not a server e
     // A host on a subnet nobody answers on: the read hangs past the route's own deadline.
     Object.defineProperty(device, "describe", { value: () => new Promise(() => {}) });
     const app = createApp(undefined, live.site);
-    const response = await app.request("/api/devices/speaker");
+    const response = await app.request(`/api/devices/${await elementAddress(app, "device", "speaker")}`);
     expect(response.status).toBe(502);
     const body = await response.json() as { error: { code: string; message: string } };
     expect(body.error.code).toBe("unreachable");

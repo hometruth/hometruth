@@ -12,6 +12,7 @@ model and firmware compatibility must be checked for each device.
 - [Local GitHub Actions](LOCAL_ACTIONS.md): run HomeTruth CLI actions on a trusted self-hosted runner.
 - [Health](HEALTH.md): hourly checks, error events, uptime and recent problems.
 - [Devices and composites](DEVICES.md): inventory, groups, tags and controls.
+- [Static playground export](STATIC_DEMO.md): a disconnected demo with pretend controls and browser-local state.
 - [CLI skill](../skills/hometruth-cli/SKILL.md) and [API guide](API.md).
 - [API tokens](API_TOKENS.md): authentication and permissions.
 - [Network Tools](NETWORK_TOOLS.md), [Wi-Fi admission](WIFI_ADMISSION.md) and [network isolation](NETWORK_ISOLATION.md).
@@ -21,7 +22,7 @@ model and firmware compatibility must be checked for each device.
 Enable only the integrations your installation needs. Each guide describes its
 hardware, software and account prerequisites.
 
-- [Apple Home](APPLE_HOME.md) and [Matter switch bridge](MATTER_SWITCHES.md).
+- [Apple Home bridges](APPLE_HOME.md).
 - [Hue](HUE.md) and [Hue proxy](HUE_PROXY.md).
 - [Frigate labels](FRIGATE.md) and [dog announcements](DOG_ANNOUNCEMENTS.md).
 - [Kindle dashboards](KINDLE.md).

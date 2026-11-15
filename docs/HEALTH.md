@@ -1,99 +1,124 @@
-# Health
+# Health monitoring and suggested fixes
 
-`/health` shows every device and service, current health, observed uptime,
-how long it has been continuously healthy, and recent problems. Current status
-totals appear above the table, which lists problems first. Choose the last
-24 hours, 7 days, or 30 days. Problems are grouped into incidents, with repeated
-reports counted and recovery recorded. Changing symptoms stay in one ongoing
-incident, showing its latest explanation; individual reports remain in the event
-stream. The page updates from the existing event
-stream; its periodic display refresh reads stored observations only.
+Open `/health` to see current device and service health, suggested fixes, observed
+uptime, and recent incidents. Failures appear first. Unknown health is listed
+separately: an integration without physical-state feedback is not proof of an
+outage. Disabled devices without outstanding action failures do not receive repair suggestions.
 
-The Health service checks at startup and once per hour, with at most four checks
-in flight. Unhealthy or degraded devices and services are rechecked every five
-minutes to confirm recovery sooner; repeated error reports do not postpone this
-check. Healthy entities return to the hourly schedule. Each check has a
-15-second deadline. A check that fails, throws,
-times out, or returns an invalid answer cannot count as healthy. A hung handler
-is not invoked again until it settles. Disabled devices and paused services are
-listed but never actively checked. Replacing an instance during configuration
-reload detaches the old reporter and schedules a new check.
+A failed press or switch command immediately creates a saved investigation at
+`/health/investigations/{id}`. A link such as **Kitchen Lights failure** appears
+indented beneath **Health** in the navigation on every page with whole-site read
+access. The link is available while the investigation is still starting; opening
+it shows live progress, observations, likely causes and suggested fixes. The
+failure response also includes an `X-HomeTruth-Investigation` header for callers
+with whole-site read access. The original error response remains an error.
 
-Device operations and status reads report errors immediately. Services report
-their own error events. A service error identifying a device appears against
-both the service and that device. Ongoing problems emit a reminder every five
-minutes without causing extra device reads. Health events are catalogued as
-`health_checked` and flow through the same service/device event streams, MQTT
-fan-out, and Filters as other events. Their data includes `kind`, `id`, `status`,
-`detail`, `checkedAt`, and `source` (`poll`, `report`, `event`, or `repeat`).
-Health reminders and Filter results are not recursively treated as new errors.
+Investigations run bounded, read-only health checks of the affected element and
+its parent device, with at most two investigations running concurrently. They do
+not retry the failed action or operate devices. Their findings use the same
+evidence-based rules as the dashboard; with an Anthropic API key, Claude then
+reviews the evidence (see below). A successful investigation probe alone does not clear an action failure.
+Repeated failures in the same unresolved incident reuse its investigation.
+Completed pages stay available after recovery; the ten most recent appear in the
+navigation and dashboard. Investigations persist in the private health database,
+and unfinished checks resume after a restart.
 
-## Required device and service contract
+## Claude review of investigations
 
-Every `Device` and `Service` implements `checkHealth(): Promise<HealthCheck>` and
-has a required `health` field in its published document. A health answer has:
+With an Anthropic API key, each investigation ends with a review by Claude. It
+receives the failed action, the read-only observations, the rule-based
+diagnosis and the element's recent events. It may look up recent events for
+other elements and the list of current problems, using at most three requests.
+It returns a likely cause, a confidence level and ordered proposals. Proposals
+that restart, re-pair, reconfigure or operate something are marked **changes a
+device**. Claude has no write access. It changes nothing; you decide what to
+act on.
 
-```json
-{
-  "status": "healthy",
-  "detail": "Responding normally",
-  "checkedAt": "2026-01-01T12:00:00.000Z"
-}
+```sh
+bun run ht secrets set vendors.anthropic.apiKey
+bun run ht secrets set vendors.anthropic.monthlyBudgetUsd   # default 5
+bun run ht secrets set vendors.anthropic.model              # default claude-opus-5-5
 ```
 
-Statuses are `healthy`, `degraded`, `unhealthy`, `unknown`, and `disabled`.
-Before the first observation, `checkedAt` is `null`. Unknown means that the
-device cannot provide reliable evidence; it must not be substituted with healthy.
+Restart the server after changing these settings. Without a key, investigations
+use only the rules.
 
-The base device check calls the model's required `probe()` and reads its
-capabilities and sensors. Use the device's real read-only protocol, a current
-hub observation, or the dependencies of a logical device. A cached identity or
-successful configuration parse alone is not a physical health check. Override
-`checkHealth()` when a device needs a different read-only check. For example,
-the camera adapter checks its local listening ports, and a Broadlink probe
-renews its protocol exchange. Individually unobservable bulbs answer unknown.
+Spending has a hard monthly cap (UTC calendar month, default $5):
 
-The base service check reads its required `status()`, which must reflect the
-backing listener, connection, or worker. Override it for services that need an
-active upstream API check. Paused services answer disabled. Implementations can
-call `reportHealth({ status, detail })` as soon as they detect a failure or
-confirm recovery. Use a concise, credential-free description, never a raw
-exception, response body, URL containing credentials, or token.
+- Before each request, HomeTruth counts its exact input tokens and reserves the
+  cost of those tokens plus the full 4,000-token output limit. A request is sent
+  only if that reservation fits the remaining monthly budget. One investigation
+  may spend at most $0.30.
+- Spend is recorded from billed usage. A request with an unknown outcome, such
+  as a dropped connection, is charged its full reservation. Rejected requests
+  are not charged. Requests are never retried automatically.
+- Only `claude-opus-5-5`, `claude-sonnet-5-5` and `claude-haiku-4-5` have known
+  prices; other models are refused. Each investigation is reviewed at most
+  once, including after a restart.
+- When the budget runs out, the page says so and shows only the rule-based
+  findings.
 
-Cached online device documents do not clear a failed active check. A successful
-health check or an explicit self-report confirms recovery. Observations older
-than two checking intervals become unknown.
+The investigation page shows the review's cost and the month's spending against
+the cap. The ledger is kept in the private health database.
 
-## History and uptime
+`GET /api/health/investigations` lists recent investigations;
+`GET /api/health/investigations/{id}` reads one saved investigation.
+`GET /api/health/investigations/stream` sends an initial snapshot and immediate
+`investigations` events containing the latest navigation entries. These routes
+require whole-site read access, as does the health dashboard.
 
-History is stored in the installation's `.hometruth/health.sqlite` and kept for
-30 days. Include it in the normal private, encrypted runtime backup; do not
-commit it. Device and service identifiers are separate, even when their IDs
-have the same spelling.
+Each monitored device and service has a binary **Unreachable counts as unhealthy**
+setting. Administrators can change it on an issue card or in the all-elements
+table. It defaults to on. Turn it off for elements that may legitimately be
+powered off: a transport failure or offline observation then displays
+**Offline (allowed)** and produces no repair suggestion. The device remains
+physically unavailable; HomeTruth does not pretend it is reachable or powered on.
+Allowed offline time is excluded from uptime. Unknown observations and other
+faults, such as invalid health answers, are not reclassified by this setting.
 
-Uptime includes earlier outages in the selected period, so a device can be
-healthy now while its uptime percentage remains low. Uptime is time spent
-healthy divided by observed, enabled time. Degraded and
-unhealthy time count against it; unknown, disabled, and unmonitored time do not.
-Each row shows how much time was actually observed. This is availability as seen
-by HomeTruth, not the device's hardware boot duration. A disconnected HomeTruth
-host cannot tell whether a device stayed available while it was away. Clean
-shutdowns close the observation interval; after a crash, history ends at the
-last 30-second monitoring heartbeat until observation resumes.
+Failed presses, switch commands and other executed controls always produce
+**Unhealthy**, even when offline periods are allowed. An action failure survives
+passive readings, policy edits and server restarts until a successful action or
+a subsequent healthy check confirms recovery. A check started before the failure
+cannot clear it. A disabled device with an outstanding action failure also keeps
+that failure visible. Settings and outstanding action failures are saved in the
+installation's private health database; they survive configuration reloads and
+restarts. Policy changes apply from that point onward and do not rewrite history.
 
-## API and access
+Each issue includes its current observation, last-check time, incident start and
+report count when available, a possible cause, and ordered next steps. Guidance
+is generated automatically from health observations using deterministic rules;
+it is not a model-generated diagnosis or a proven root cause. Claude reviews
+appear only on investigation pages. Known parent
+device failures take priority over child-device troubleshooting. Other guidance
+covers pairing, credentials, host permissions, configuration, connectivity,
+stale observations, and unexplained integration failures. Diagnostic text uses
+English, like the underlying health observations; dashboard controls follow the
+selected language.
 
-- `GET /api/health/report?period=24h` returns the dashboard data. Periods are
-  `24h`, `7d`, and `30d`.
-- `GET /api/devices/:id/health` and `GET /api/services/:id/health` return the last
-  observed answer without contacting hardware.
-- `POST /api/devices/:id/health/check` and
-  `POST /api/services/:id/health/check` request a bounded check. Send an empty
-  JSON body with `Content-Type: application/json`.
-- `GET /api/services/health/stream` streams health events through the existing
-  service event interface. Device event streams also include their health events.
+Use **Open details** or **View log** to investigate, follow the suggested steps,
+then select **Check again**. This performs the existing read-only health check
+with your current access permissions. It does not restart, re-pair, reset or
+operate devices. A successful healthy observation removes the active suggestion
+and resolves its incident; earlier outages remain in the history and uptime.
+An unsuccessful request leaves the previous observation visible.
 
-The dashboard, report, and service checks require site-wide read access. A
-device-scoped read token can only read or check its permitted devices. The
-existing public `/api/health` endpoint remains process liveness and exposes no
-device history.
+**Investigate with your agent** provides a copyable request containing the
+installation's MCP endpoint, affected element, timestamps, evidence and suggested
+checks. Paste it into an agent with access to your HomeTruth installation to
+obtain a deeper investigation and repair plan. This uses the existing connection
+and permissions; copying does not invoke an agent or share data automatically.
+The request asks the agent to separate evidence from hypotheses and obtain
+approval before making changes. Review it before sharing outside your installation.
+
+`GET /api/health/report?period=24h` (also `7d` or `30d`) includes a `diagnoses`
+array alongside `entities` and `problems`. Each diagnosis identifies its entity
+by `key`, includes `category`, `summary`, `likelyCause`, ordered `steps`,
+`relatedKeys`, and `evidence`. Whole-installation read access is required.
+Each entity includes `unreachableIsUnhealthy` and `expectedOfflineMs`. Administrators
+can update the boolean with `PUT /api/devices/{address}/health/policy` or
+`PUT /api/services/{address}/health/policy`, with JSON
+`{"unreachableIsUnhealthy": false}`. Read-only and device-scoped grants cannot change health policies. The health status `expected_offline` denotes permitted
+unavailability; `reason: "operation_failed"` identifies an outstanding failed action.
+Rendering or reading the report only examines cached observations; hardware
+checks remain explicit or scheduled by the monitor.

@@ -1,3 +1,4 @@
+import { groupPath } from "./test-addresses";
 import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -71,20 +72,20 @@ test("tag assignments and renames update membership, relationships, and switch t
   expect((await post(app, "/api/device-groups", { id: "tagged", name: "Tagged switches", criteria, asSwitch: true })).status).toBe(201);
   expect(definitions[0]).toEqual({ id: "tagged", name: "Tagged switches", criteria, asSwitch: true });
   tags.attach(elementKey("device", "second"), { tagId: foo.id });
-  expect(ids(await (await app.request("/api/device-groups/tagged")).json())).toEqual(["first", "second"]);
+  expect(ids(await (await app.request(`${await groupPath(app, "tagged")}`)).json())).toEqual(["first", "second"]);
   expect(site.view("second")!.relationships?.some(link => link.id === "tagged" && link.relation === "memberOf")).toBe(true);
   tags.update(foo.id, { value: "renamed", color: "#aabbcc", description: "Renamed" }, foo.revision);
   expect(definitions[0]!.criteria).toEqual(criteria);
   expect(await (await app.request("/groups/tagged-switches")).text()).toContain("#renamed");
   tags.detach(elementKey("device", "first"), foo.id);
-  expect((await post(app, "/api/device-groups/tagged/switch/turn-on", {})).status).toBe(200);
+  expect((await post(app, `${await groupPath(app, "tagged")}/switch/turn-on`, {})).status).toBe(200);
   expect([first.state, second.state]).toEqual(["off", "on"]);
   expect([first.writes, second.writes]).toEqual([0, 1]);
   expect(site.deviceGroups.find(group => group.id === "tagged")!.members).toEqual(["second"]);
   tags.detach(elementKey("device", "second"), foo.id);
-  expect((await post(app, "/api/device-groups/tagged/controls/power.turnOn", {})).status).toBe(409);
+  expect((await post(app, `${await groupPath(app, "tagged")}/controls/power.turnOn`, {})).status).toBe(409);
   expect([first.writes, second.writes]).toEqual([0, 1]);
-  expect((await post(app, "/api/device-groups/tagged/settings", { criteria: { room: "Kitchen" } })).status).toBe(200);
+  expect((await post(app, `${await groupPath(app, "tagged")}/settings`, { criteria: { room: "Kitchen" } })).status).toBe(200);
   expect(site.deviceGroups.find(group => group.id === "tagged")!.members).toEqual(["first", "lamp"]);
 });
 

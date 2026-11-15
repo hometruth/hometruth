@@ -4,7 +4,8 @@ import type { Availability } from "../models/capability";
 export const healthValueSchema = {
   type: "object", additionalProperties: false,
   properties: {
-    status: { enum: ["healthy", "degraded", "unhealthy", "unknown", "disabled"] },
+    status: { enum: ["healthy", "degraded", "unhealthy", "unknown", "disabled", "expected_offline"] },
+    reason: { enum: ["unreachable", "operation_failed"] },
     detail: { type: "string", minLength: 1, maxLength: 300 },
     checkedAt: { anyOf: [{ type: "string", format: "date-time" }, { type: "null" }] },
   },
@@ -18,7 +19,7 @@ export const healthValueSchema = {
 export const healthCheckSchema = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
   $id: "https://hometruth.ai/schemas/health-check", title: "Health check",
-  description: "The mandatory answer to are you OK. Unknown and disabled are not evidence of uptime; checkedAt is null until an observation exists.",
+  description: "The mandatory answer to are you OK. Unknown, disabled and allowed offline states are not evidence of uptime; checkedAt is null until an observation exists.",
   ...healthValueSchema,
 } as const;
 
@@ -34,7 +35,7 @@ export const ERROR_RECHECK_MS = 5 * 60 * 1000;
 export function availabilityHealth(availability: Availability): HealthResult {
   switch (availability) {
     case "online": return { status: "healthy", detail: "Responding normally" };
-    case "offline": return { status: "unhealthy", detail: "Not responding" };
+    case "offline": return { status: "unhealthy", detail: "Not responding", reason: "unreachable" };
     case "degraded": return { status: "degraded", detail: "Some functions are unavailable" };
     case "unknown": return { status: "unknown", detail: "No reliable health observation" };
   }
@@ -42,11 +43,18 @@ export function availabilityHealth(availability: Availability): HealthResult {
 
 export const isProblem = (status: HealthStatus): boolean => status === "unhealthy" || status === "degraded";
 
+/** Transport failures only; authentication, validation and integration errors stay failures. */
+export function isUnreachableError(error: unknown, depth = 0): boolean {
+  if (!error || typeof error !== "object" || depth > 3) return false;
+  const value = error as { code?: unknown; name?: unknown; cause?: unknown };
+  return value.name === "TimeoutError" || ["unreachable", "timeout", "ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "EHOSTUNREACH", "ENETUNREACH", "ENOTFOUND", "EAI_AGAIN", "ConnectionRefused", "ConnectionClosed", "ConnectionReset"].includes(String(value.code)) || isUnreachableError(value.cause, depth + 1);
+}
+
 const entityProperties = { key: { type: "string" }, kind: { enum: ["device", "service"] }, id: { type: "string" }, name: { type: "string" } } as const;
 const nullableTime = { anyOf: [{ type: "string", format: "date-time" }, { type: "null" }] } as const;
 export const healthReportSchema = {
   $schema: "https://json-schema.org/draft/2020-12/schema", $id: "https://hometruth.ai/schemas/health-report",
-  title: "Health report", description: "Observed availability and recent problems. Uptime is healthy time divided by known enabled time. Unknown, unmonitored and disabled time are excluded; this is not hardware boot uptime.",
+  title: "Health report", description: "Observed availability and recent problems. Uptime is healthy time divided by known enabled time. Unknown, unmonitored, disabled and allowed offline time are excluded; this is not hardware boot uptime.",
   type: "object", additionalProperties: false,
   properties: {
     since: { type: "string", format: "date-time" }, until: { type: "string", format: "date-time" }, pollIntervalMs: { type: "number", minimum: 1 },
@@ -54,12 +62,21 @@ export const healthReportSchema = {
       ...entityProperties, health: healthValueSchema, healthySince: nullableTime,
       uptimePercent: { anyOf: [{ type: "number", minimum: 0, maximum: 100 }, { type: "null" }] },
       observedMs: { type: "number", minimum: 0 }, unknownMs: { type: "number", minimum: 0 }, disabledMs: { type: "number", minimum: 0 },
-    }, required: ["key", "kind", "id", "name", "health", "healthySince", "uptimePercent", "observedMs", "unknownMs", "disabledMs"] } },
+      expectedOfflineMs: { type: "number", minimum: 0 }, unreachableIsUnhealthy: { type: "boolean" },
+    }, required: ["key", "kind", "id", "name", "health", "healthySince", "uptimePercent", "observedMs", "unknownMs", "disabledMs", "expectedOfflineMs", "unreachableIsUnhealthy"] } },
     problems: { type: "array", items: { type: "object", additionalProperties: false, properties: {
       ...entityProperties, detail: { type: "string" }, startedAt: { type: "string", format: "date-time" }, lastAt: { type: "string", format: "date-time" },
       resolvedAt: nullableTime, occurrences: { type: "integer", minimum: 1 },
     }, required: ["key", "kind", "id", "name", "detail", "startedAt", "lastAt", "resolvedAt", "occurrences"] } },
-  }, required: ["since", "until", "pollIntervalMs", "entities", "problems"],
+    diagnoses: { type: "array", items: { type: "object", additionalProperties: false, properties: {
+      key: { type: "string" }, category: { enum: ["operation", "dependency", "pairing", "authentication", "permission", "configuration", "connectivity", "stale", "unobserved", "integration"] },
+      summary: { type: "string" }, likelyCause: { type: "string" }, steps: { type: "array", minItems: 1, items: { type: "string" } },
+      relatedKeys: { type: "array", items: { type: "string" } },
+      evidence: { type: "object", additionalProperties: false, properties: {
+        detail: { type: "string" }, checkedAt: nullableTime, startedAt: nullableTime, reports: { type: "integer", minimum: 0 },
+      }, required: ["detail", "checkedAt", "startedAt", "reports"] },
+    }, required: ["key", "category", "summary", "likelyCause", "steps", "relatedKeys", "evidence"] } },
+  }, required: ["since", "until", "pollIntervalMs", "entities", "problems", "diagnoses"],
 } as const;
 
 /** Device and service implementations can report failures without waiting for the hourly check. */
@@ -71,7 +88,7 @@ export abstract class HealthReporter {
 
   /** Use a credential-free, human-facing description; never pass an upstream error body. */
   reportHealth(result: HealthResult): HealthCheck {
-    this.#latest = { status: result.status, detail: result.detail, checkedAt: new Date().toISOString() };
+    this.#latest = { status: result.status, detail: result.detail, ...(result.reason ? { reason: result.reason } : {}), checkedAt: new Date().toISOString() };
     for (const listener of this.healthListeners) {
       try { listener(this.#latest); }
       catch { console.warn(JSON.stringify({ event: "health_report_delivery_failed" })); }

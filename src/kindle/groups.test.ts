@@ -1,7 +1,9 @@
+import { testPageContext } from "../ui/test-context";
 import { StateHub } from "../state/hub";
 import { deviceNode } from "../state/protocol";
 import { observedKindleState } from "./test-fixture";
-import { expect, test } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
+import { addressesFor } from "../element-api/addresses";
 import { Device } from "../models/device";
 import { SHELLY_PLUS_1 } from "../devices/switches/shelly-plus-1";
 import { Site } from "../site";
@@ -12,6 +14,11 @@ import { DEFAULT_KINDLE_CONFIG, parseKindleConfig, type KindleConfig } from "./c
 import { buildKindleSnapshot } from "./presentation";
 import { MemoryKindleConfigStore } from "./store";
 import { TestLight, TestRelay } from "./test-fixture";
+import { elementKey } from "../tags/identity";
+import { ROOM, TagStore } from "../tags/store";
+
+const cleanups: (() => void)[] = [];
+afterEach(() => { for (const cleanup of cleanups.splice(0)) cleanup(); });
 
 class RelayDevice extends Device<{ host: string }> {
   readonly model = SHELLY_PLUS_1;
@@ -31,15 +38,18 @@ class LightDevice extends Device<{ host: string }> {
 const fixture = () => {
   const fan = new RelayDevice("fan"), light = new LightDevice("light"), sameId = new RelayDevice("primary-bath");
   light.light.on = true;
-  const group = { id: "primary-bath", name: "Primary Bath", room: "Master Bathroom", members: ["fan", "light"] };
+  const group = { id: "primary-bath", name: "Primary Bath", members: ["fan", "light"] };
   const site = new Site([fan, light, sameId], undefined, undefined, undefined, undefined, undefined, [group]);
+  const tags = new TagStore();
+  tags.attach(elementKey("group", group.id), { name: ROOM, value: "Master Bathroom" });
   const config: KindleConfig = { ...DEFAULT_KINDLE_CONFIG, canvas: { width: 758, height: 1024, grid: 8, widgets: [
     { id: "bath", kind: "device", source: "group", deviceId: group.id, capability: "auto", mode: "auto", label: "", showLabel: true, x: 16, y: 16, width: 320, height: 220, fontSize: 24, align: "left", border: false },
     { id: "single", kind: "device", deviceId: sameId.id, capability: "auto", mode: "auto", label: "", showLabel: true, x: 352, y: 16, width: 320, height: 220, fontSize: 24, align: "left", border: false },
   ] } };
   const store = new MemoryKindleConfigStore(config);
   const hub = new StateHub();
-  const app = createApp(undefined, site, undefined, undefined, undefined, undefined, undefined, undefined, undefined, store, undefined, undefined, hub);
+  const app = createApp(undefined, site, undefined, undefined, undefined, undefined, undefined, undefined, undefined, store, undefined, tags, hub);
+  cleanups.push(() => { hub.stop(); tags.close(); });
   return { app, hub, site, config, store, fan, light, sameId };
 };
 
@@ -67,8 +77,9 @@ test("group widgets retain mixed readings and dispatch shared controls only to t
   expect(group).toMatchObject({ widgetId: "bath", source: "group", label: "Primary Bath", room: "Master Bathroom", missing: false });
   expect(group.primitives[0]).toMatchObject({ capability: "binarySwitch", detail: "Mixed", availability: "online" });
   expect(group.primitives[0].actions.map((action: { pressed?: boolean }) => action.pressed)).toEqual([undefined, undefined]);
-  expect(renderPrimitive(group, group.primitives[0])).toContain('/api/device-groups/primary-bath/controls/power.turnOn');
-  expect(renderPrimitive(single, single.primitives[0])).toContain('/api/devices/primary-bath/capabilities/binarySwitch/controls/turnOn');
+  const ctx = testPageContext({ apiAddresses: addressesFor(hub).mappings });
+  expect(renderPrimitive(ctx, group, group.primitives[0])).toContain('/api/device-groups/primary-bath-group/controls/power.turnOn');
+  expect(renderPrimitive(ctx, single, single.primitives[0])).toContain('/api/devices/primary-bath-device/capabilities/binarySwitch/controls/turnOn');
   expect(fan.relay.writes + sameId.relay.writes).toBe(0);
   const response = await app.request(group.primitives[0].actions[0].url, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
   expect((await response.json()).ok).toBe(true);

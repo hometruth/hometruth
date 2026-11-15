@@ -287,7 +287,19 @@ export class SelectedDeviceGroup {
         return { id: member.id, name: member.name, ok: false, error: error instanceof Error ? error.message : String(error) };
       }
     }));
-    return { ok: results.every(result => result.ok), results, group: await this.describe() };
+    const group = await this.describe();
+    const expected = id === "power.turnOn" || toggle === "turnOn" ? true : id === "power.turnOff" || toggle === "turnOff" ? false : undefined;
+    if (expected !== undefined) for (const result of results) {
+      if (!result.ok) continue;
+      const member = group.members.find(member => member.id === result.id)!;
+      const actual = member.properties["power.on"];
+      if (actual === expected) continue;
+      result.ok = false;
+      result.error = typeof actual === "boolean"
+        ? `Requested ${expected ? "On" : "Off"}, but the device still reports ${actual ? "On" : "Off"}`
+        : `The command was sent, but ${expected ? "On" : "Off"} could not be confirmed (${member.availability})${member.error ? `: ${member.error}` : ""}`;
+    }
+    return { ok: results.every(result => result.ok), results, group };
   }
 }
 

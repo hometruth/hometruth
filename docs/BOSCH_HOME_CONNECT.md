@@ -77,17 +77,14 @@ makes its state unavailable.
 ## Apple Home
 
 The optional `cooktop-child-lock` device shares its parent's connection and
-exports a `binarySwitch`. The existing Matter bridge discovers it with other
-switches. See [Matter setup](MATTER_SWITCHES.md).
+exports a `binarySwitch`. Use its **Apple Home** section, or a bridge page's **Add to Apple Home** list, to share
+it through a Matter or HomeKit bridge. Pair the selected bridge from the
+**Bridges** page. Pairing persists across restarts in the private installation's
+`.hometruth/bridges/` directory. See [Apple Home bridges](APPLE_HOME.md).
 
-The bridge is managed by the main HomeTruth process when enabled. If HomeTruth
-is stopped, start it from your terminal using the [operations guide](OPERATIONS.md).
-
-An already commissioned bridge retains its pairing when restarted. New switch
-inventory is refreshed every 30 seconds. Keep `.hometruth/matter/` to preserve
-that pairing. If it has never been paired, use the switch's Settings page for
-the shared bridge QR code. Apple Home does not currently receive the cooktop's
-burner readings or timer through this bridge.
+Burner and timer readings are not native Apple accessory types. Custom mappings
+can expose a relevant property only when its meaning, units and available
+controls match the chosen Apple profile.
 
 ## Validation and references
 

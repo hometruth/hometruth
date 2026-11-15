@@ -42,7 +42,7 @@ describe("Kindle capability framework", () => {
   });
   test("controls use existing invocation, update observed state, and record presses", async () => {
     const { app, device } = fixture();
-    const invoke = (capability: string, control: string) => app.request(`/api/devices/composite/capabilities/${capability}/controls/${control}`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+    const invoke = (capability: string, control: string) => app.request(`/api/devices/composite-device/capabilities/${capability}/controls/${control}`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
     expect((await invoke("binarySwitch", "turnOn")).status).toBe(200);
     expect((await invoke("button", "press")).status).toBe(200);
     expect((await invoke("light", "turnOn")).status).toBe(200);

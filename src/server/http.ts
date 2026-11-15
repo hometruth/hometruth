@@ -21,10 +21,14 @@ export type AppEnvironment = { Variables: SecureHeadersVariables & {
   uiFeatures?: UiFeatures;
   pageState?: PageState;
   elementApi?: PageContext["elementApi"];
+  apiAddresses?: PageContext["apiAddresses"];
   tagEditor?: PageContext["tagEditor"];
+  bridgeEditor?: PageContext["bridgeEditor"];
   rooms?: readonly string[];
+  healthInvestigations?: PageContext["healthInvestigations"];
   /** Who is making this request, set by the auth guard. Absent only on a public route. */
   principal?: Principal;
+  browserSession?: import("../auth/browser-store").BrowserSession;
 } };
 
 /** The worker generation, the cache key in browser module URLs; `dev` outside the supervisor. */
@@ -54,7 +58,10 @@ export function pageContext(context: Context<AppEnvironment>): PageContext {
     features: context.get("uiFeatures") ?? { isolation: false, admin: false },
     ...(context.get("pageState") ? { state: context.get("pageState")! } : {}),
     assetVersion: assetVersion(),
+    ...(context.get("apiAddresses") ? { apiAddresses: context.get("apiAddresses")! } : {}),
     rooms: context.get("rooms") ?? [],
+    ...(context.get("healthInvestigations") ? { healthInvestigations: context.get("healthInvestigations")! } : {}),
+    ...(context.get("bridgeEditor") ? { bridgeEditor: context.get("bridgeEditor")! } : {}),
     ...(context.get("tagEditor") ? { tagEditor: context.get("tagEditor")! } : {}),
     ...(context.get("elementApi") ? { elementApi: context.get("elementApi")! } : {}),
   });

@@ -8,7 +8,15 @@ Page handlers construct HTML from that data synchronously. A missing record rend
 
 The observer retains enabled devices independently of browser subscriptions. It applies bounded concurrency, polling floors, push invalidation, and failure backoff. Explicit descriptions and command results publish through the same observer. Browser streams deliver subsequent observations; loss of the runtime connection leaves cached content and edits visible with a connection notice.
 
-`GET /api/state` returns cached observations. Repeated `node` parameters select a subset; omission returns all records in the caller's scope. `/api/graph` and `/api/graph/:key` project cached topology. Presentation code remains responsible for formatting these records.
+Logical controls with no independent reachability declare `Device.availabilitySources`.
+Action buttons, workflow buttons, and optimistic switches inherit the latest
+availability of those devices, transitively. Describing or checking one of these
+controls never probes its dependencies. Watching it retains its sources at their
+own polling floors; changes to a source update dependent controls immediately.
+An unobserved source remains unknown, and a disabled source is unavailable.
+Inherited health uses the source observation time rather than claiming a new probe.
+
+`GET /api/state` returns cached observations. Repeated `node` parameters select a subset; omission returns all records in the caller's scope. `/api/graph` and `/api/graph/scene` project cached topology. Presentation code remains responsible for formatting these records.
 
 Kindle HTML is rendered directly from cached records. The explicit canvas-preview endpoint can rasterize later. Camera media, experiments, and explicit refresh/control operations may perform their required I/O outside initial page rendering.
 

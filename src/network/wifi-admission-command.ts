@@ -109,7 +109,8 @@ type WorkerMessage = { progress: string } | { result: AdmissionResult } | { erro
 export async function runWifiAdmissionCommand(options: WifiAdmissionCommandOptions,
   env: Record<string, string | undefined> = process.env, report: (message: string) => void = console.error, signal?: AbortSignal): Promise<AdmissionResult> {
   signal?.throwIfAborted();
-  const child = spawn(process.execPath, [resolve(import.meta.dir, "wifi-admission-command.ts"), "--worker"], {
+  // In the downloaded CLI this module shares the entry file with `ht`.
+  const child = spawn(process.execPath, [import.meta.path, "--wifi-admission-worker"], {
     detached: true, stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, ...env },
   });
   const cancel = () => { child.kill("SIGTERM"); };
@@ -152,7 +153,8 @@ export async function runWifiAdmissionCommand(options: WifiAdmissionCommandOptio
   }
 }
 
-if (import.meta.main && process.argv[2] === "--worker") {
+/** The source module and the bundled CLI both dispatch to the same worker. */
+export async function runWifiAdmissionWorker(): Promise<void> {
   const abort = new AbortController();
   const cancel = () => abort.abort();
   process.on("SIGINT", cancel);
@@ -176,4 +178,8 @@ if (import.meta.main && process.argv[2] === "--worker") {
     process.off("SIGINT", cancel);
     process.off("SIGTERM", cancel);
   }
+}
+
+if (import.meta.main && process.argv[2] === "--wifi-admission-worker") {
+  await runWifiAdmissionWorker();
 }

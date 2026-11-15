@@ -5,6 +5,7 @@ import type { DevicesConfig } from "../../../schemas";
 import { Site } from "../../../site";
 import { validators } from "../../../validation";
 import { createApp } from "../../../server/app";
+import { elementAddress } from "../../../server/test-addresses";
 import { StringLight, LightDevice } from "../../../models/string-light";
 
 const host = "10.77.0.80";
@@ -126,7 +127,8 @@ describe("H7021 StringLight", () => {
   test("serves parent and child pages, API documents and controls without special device endpoints", async () => {
     const { site, transport } = fixture();
     const app = createApp(undefined, site);
-    const detail = await app.request("/api/devices/string");
+    const stringPath = `/api/devices/${await elementAddress(app, "device", "string")}`;
+    const detail = await app.request(stringPath);
     expect(detail.status).toBe(200);
     const body = await detail.json();
     expect(body.model.capabilities).toEqual(["stringLight"]);
@@ -137,7 +139,7 @@ describe("H7021 StringLight", () => {
     const child = await app.request("/lights/string-light-1");
     expect(child.status).toBe(200);
     expect(await child.text()).toContain("Part of");
-    const control = await app.request("/api/devices/string/controls/setBrightness", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ value: 42 }) });
+    const control = await app.request(`${stringPath}/controls/setBrightness`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ value: 42 }) });
     expect(control.status).toBe(200);
     expect(transport.status.brightness).toBe(42);
     expect((await app.request("/api/lights/string-light-1/turn-off", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).status).toBe(200);
@@ -225,11 +227,12 @@ test("sequences advance, cancel stale queued steps after manual changes, and sto
 test("H7021 exposes fixed warm white and rejects temperature adjustments without replacing a show", async () => {
   const { string, site, transport } = fixture();
   const app = createApp(undefined, site);
+  const stringPath = `/api/devices/${await elementAddress(app, "device", "string")}`;
   expect((await string.describe()).capabilities.stringLight?.actions?.setColorTemperature).toEqual({ minimumKelvin: 2700, maximumKelvin: 2700 });
   await string.playShow("wave");
   const before = transport.writes.length;
   for (const value of [2000, 4000, 9000]) {
-    const response = await app.request("/api/devices/string/capabilities/stringLight/controls/setColorTemperature", {
+    const response = await app.request(`${stringPath}/capabilities/stringLight/controls/setColorTemperature`, {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ value }),
     });
     expect(response.status).toBe(400);
@@ -280,8 +283,9 @@ test("static scenes repeat along the physical array, cancel pending shows, and k
 test("scene API validates choices, restoring the prior static arrangement after a show or unclassified preset", async () => {
   const { string, transport, site } = fixture(30);
   const app = createApp(undefined, site);
+  const stringPath = `/api/devices/${await elementAddress(app, "device", "string")}`;
   for (const value of ["wave", "night", { id: "candy-cane" }]) {
-    const response = await app.request("/api/devices/string/capabilities/stringLight/controls/applyScene", {
+    const response = await app.request(`${stringPath}/capabilities/stringLight/controls/applyScene`, {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ value }),
     });
     expect(response.status).toBe(400);
@@ -289,7 +293,7 @@ test("scene API validates choices, restoring the prior static arrangement after 
   await expect(string.playShow("night")).rejects.toThrow();
   await expect(string.applyPreset("wave")).rejects.toThrow();
   expect(transport.writes).toHaveLength(0);
-  const response = await app.request("/api/devices/string/capabilities/stringLight/controls/applyScene", {
+  const response = await app.request(`${stringPath}/capabilities/stringLight/controls/applyScene`, {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ value: "ocean-colors" }),
   });
   expect(response.status).toBe(200);

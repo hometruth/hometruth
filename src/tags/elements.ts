@@ -3,8 +3,8 @@
  *
  * This is now a view over `src/graph`: the graph owns what exists and how it is
  * connected, and this projects each node into the shape those callers already
- * expect. Nothing about the `Element` record changed, so every stored tag
- * assignment and every `/elements/<key>` URL keeps working.
+ * expect. Stored tag assignments keep stable keys; the HTTP presentation
+ * directory supplies the current friendly page addresses.
  *
  * This projection receives the state service's in-memory topology. It performs
  * no discovery or storage reads, including when a device has never answered.

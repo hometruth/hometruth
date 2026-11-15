@@ -30,6 +30,7 @@ import { randomUUID } from "node:crypto";
 import { chmodSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { GraphEdge, GraphNode, Icon, NodeId } from "./types";
+import { edgeIdentity } from "./graph";
 
 export const DEFAULT_GRAPH_STORE_PATH = ".hometruth/graph.sqlite";
 
@@ -111,14 +112,16 @@ export class GraphStore {
         last_seen   TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS nodes_by_kind ON nodes(kind, present);
-      CREATE TABLE IF NOT EXISTS edges (
+      -- Edges are a derived cache rebuilt by reconcile, never durable user data.
+      DROP TABLE IF EXISTS edges;
+      CREATE TABLE edges (
+        edge_id TEXT PRIMARY KEY,
         from_key TEXT NOT NULL,
         to_key   TEXT NOT NULL,
         relation TEXT NOT NULL,
         label    TEXT,
         via      TEXT,
-        origin   TEXT NOT NULL,
-        PRIMARY KEY (from_key, to_key, relation)
+        origin   TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS edges_by_to ON edges(to_key, relation);
       CREATE TABLE IF NOT EXISTS aliases (
@@ -188,7 +191,7 @@ export class GraphStore {
         icon = $icon, ids = $ids, schema_key = $schema, state_node = $state, present = 1, last_seen = $last`);
     const tombstone = this.#db.query("UPDATE nodes SET present = 0 WHERE uuid = ?");
     const clearEdges = this.#db.query("DELETE FROM edges");
-    const addEdge = this.#db.query("INSERT OR REPLACE INTO edges (from_key, to_key, relation, label, via, origin) VALUES (?, ?, ?, ?, ?, ?)");
+    const addEdge = this.#db.query("INSERT OR REPLACE INTO edges (edge_id, from_key, to_key, relation, label, via, origin) VALUES (?, ?, ?, ?, ?, ?, ?)");
 
     this.#db.transaction(() => {
       for (const node of nodes) {
@@ -212,7 +215,7 @@ export class GraphStore {
       // than diffing, and it cannot leave one pointing at something gone.
       clearEdges.run();
       for (const edge of edges) {
-        addEdge.run(edge.from, edge.to, edge.relation, edge.label ?? null, edge.via ?? null, edge.origin);
+        addEdge.run(edgeIdentity(edge), edge.from, edge.to, edge.relation, edge.label ?? null, edge.via ?? null, edge.origin);
       }
     })();
 

@@ -49,7 +49,9 @@ test("WLED adapter sends brightness separately from saturated color in one state
 test("HomeTruth adapter uses the actual device API, clamps bounds and writes off last", async () => {
   const requests: any[] = [];
   const destinations = new Destinations((async (url, init) => {
-    if (init?.method === "GET") return Response.json({ model: { id: "elgato-key-light-air" }, object: { capabilities: { light: { actions: { turnOn: {}, turnOff: {}, setBrightness: { minimumPercent: 3, maximumPercent: 100 }, setColorTemperature: { minimumKelvin: 2900, maximumKelvin: 7000 } } } } } });
+    if (String(url).endsWith("/api/inventory")) return Response.json({ elements: [{ kind: "device", deviceId: "lamp", address: "desk-lamp" }] });
+    if (init?.method === "GET") { expect(String(url)).toBe("http://127.0.0.1:3000/api/devices/desk-lamp"); return Response.json({ model: { id: "elgato-key-light-air" }, object: { capabilities: { light: { actions: { turnOn: {}, turnOff: {}, setBrightness: { minimumPercent: 3, maximumPercent: 100 }, setColorTemperature: { minimumKelvin: 2900, maximumKelvin: 7000 } } } } } }); }
+    expect(String(url)).toStartWith("http://127.0.0.1:3000/api/devices/desk-lamp/");
     requests.push([String(url).split("/").slice(-3).join("/"), JSON.parse(String(init?.body))]);
     return Response.json({});
   }) as typeof fetch);
@@ -57,8 +59,43 @@ test("HomeTruth adapter uses the actual device API, clamps bounds and writes off
   expect(requests).toEqual([["light/controls/setColorTemperature", { value: 2900 }], ["light/controls/setBrightness", { value: 3 }], ["light/controls/turnOff", {}]]);
 });
 test("HomeTruth refuses feedback into Hue devices", async () => {
-  const destinations = new Destinations((async (_url, _init) => Response.json({ model: { id: "hue-light" } })) as typeof fetch);
+  const destinations = new Destinations((async (url, init) => {
+    expect(init?.method).toBe("GET");
+    return Response.json(String(url).endsWith("/api/inventory")
+      ? { elements: [{ kind: "device", deviceId: "hue", address: "hue-lamp" }] }
+      : { model: { id: "hue-light" } });
+  }) as typeof fetch);
   await expect(destinations.deliver({ id: "hue", kind: "hometruth", url: "http://127.0.0.1:3000", deviceId: "hue" }, event({ on: true }), new AbortController().signal)).rejects.toThrow("feedback");
+});
+test("HomeTruth deliveries follow renamed friendly addresses and never use stored IDs as URLs", async () => {
+  let address = "desk-lamp";
+  const paths: string[] = [];
+  const destinations = new Destinations((async (url, init) => {
+    const path = new URL(String(url)).pathname;
+    paths.push(path);
+    if (path === "/api/inventory") return Response.json({ elements: [{ kind: "device", deviceId: "stored-lamp-123", address }] });
+    if (init?.method === "GET") return Response.json({ model: { id: "elgato-key-light-air" }, object: { capabilities: { light: { actions: { turnOn: {} } } } } });
+    return Response.json({});
+  }) as typeof fetch);
+  const destination: Target = { id: "lamp", kind: "hometruth", url: "http://127.0.0.1:3000", deviceId: "stored-lamp-123" };
+  const signal = new AbortController().signal;
+  await destinations.deliver(destination, event({ on: true }), signal);
+  address = "reading-light";
+  await destinations.deliver(destination, event({ on: true }), signal);
+  expect(paths).toEqual([
+    "/api/inventory", "/api/devices/desk-lamp", "/api/devices/desk-lamp/capabilities/light/controls/turnOn",
+    "/api/inventory", "/api/devices/reading-light", "/api/devices/reading-light/capabilities/light/controls/turnOn",
+  ]);
+});
+test("HomeTruth refuses a destination missing from accessible inventory without an ID fallback", async () => {
+  const paths: string[] = [];
+  const destinations = new Destinations((async (url, init) => {
+    expect(init?.method).toBe("GET");
+    paths.push(new URL(String(url)).pathname);
+    return Response.json({ elements: [] });
+  }) as typeof fetch);
+  await expect(destinations.deliver({ id: "lamp", kind: "hometruth", url: "http://127.0.0.1:3000", deviceId: "stored-lamp" }, event({ on: true }), new AbortController().signal)).rejects.toThrow("accessible inventory");
+  expect(paths).toEqual(["/api/inventory"]);
 });
 test("WLED segment off leaves other segments' power and dimming alone", async () => {
   let sent: any;

@@ -147,6 +147,14 @@ const definitions: readonly (Omit<EventTypeDefinition, "payloadSchema"> & { payl
   },
   // --- Generic device lifecycle and controls ---
   {
+    id: "device_control_requested", label: "Control requested", description: "HomeTruth received a control request for an element.", level: "info", view: "plain",
+    payloadSchema: { type: "object", additionalProperties: false, properties: { control: text(100) }, required: ["control"] },
+  },
+  {
+    id: "device_control_failed", label: "Control failed", description: "A control failed or its requested state could not be confirmed. The reason identifies what went wrong.", level: "error", view: "plain",
+    payloadSchema: { type: "object", additionalProperties: false, properties: { control: text(100), reason: text(1000) }, required: ["control", "reason"] },
+  },
+  {
     id: "availability_changed",
     label: "Availability changed",
     description: "A device became online, offline, degraded, or unknown.",
@@ -512,9 +520,13 @@ const definitions: readonly (Omit<EventTypeDefinition, "payloadSchema"> & { payl
     payloadSchema: { type: "object", additionalProperties: false },
   },
   {
-    id: "matter_bridge",
+    id: "apple_bridge_control", label: "Apple Home control", description: "An Apple Home bridge requested or completed a mapped control.", level: "info", view: "plain",
+    payloadSchema: { type: "object", additionalProperties: false, properties: { control: text(100), outcome: { type: "string", enum: ["requested", "succeeded", "failed"] } }, required: ["control", "outcome"] },
+  },
+  {
+    id: "apple_bridge",
     label: "Apple Home bridge",
-    description: "The managed Matter bridge started, stopped, or changed availability.",
+    description: "An Apple Home bridge started, stopped, or changed availability.",
     level: "info",
     view: "plain",
     payloadSchema: { type: "object", additionalProperties: false },

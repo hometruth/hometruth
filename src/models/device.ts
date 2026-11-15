@@ -8,7 +8,7 @@
  * probed, rebooted, or located get generic recovery for free (`recovery.ts`).
  */
 import type { HomeTruthObject } from "../schemas";
-import { HealthReporter, availabilityHealth, type HealthCheck } from "../health/model";
+import { HealthReporter, availabilityHealth, isUnreachableError, type HealthCheck } from "../health/model";
 import type { DeviceConnectionType } from "./device-connection";
 import type { Sensor, SensorDefinition, SensorDocument } from "./sensor";
 import { describeValidationErrors, validators } from "../validation";
@@ -153,23 +153,37 @@ export abstract class Device<Config = unknown> extends HealthReporter {
    * still re-enableable) but refuses controls, and anything that maintains an
    * ongoing connection or background poll must skip it while this is false.
    */
-  enabled = true;
+  private isEnabled = true;
+  get enabled(): boolean { return this.isEnabled; }
+  set enabled(value: boolean) {
+    if (this.isEnabled === value) return;
+    this.isEnabled = value;
+    this.reportAvailability("unknown");
+  }
   abstract readonly model: DeviceModel<Config>;
   abstract readonly capabilities: CapabilityMap;
   readonly sensors: readonly Sensor[] = [];
+  /** Logical controls with no independent reachability inherit these devices' observations. */
+  readonly availabilitySources: readonly Device[] = [];
+  private observedAvailability: Availability = "unknown";
+  private availabilityAt: string | null = null;
+  private availabilityRevision = 0;
+  private readonly availabilityListeners = new Set<() => void>();
 
   constructor(readonly id: string, readonly name: string, readonly config: Config) { super(); }
 
   /** Every model must answer. Probe the actual protocol, then check all capability/sensor states. */
   async checkHealth(): Promise<HealthCheck> {
     if (!this.enabled) return this.reportHealth({ status: "disabled", detail: "Disabled in HomeTruth" });
+    if (this.availabilitySources.length) return this.health;
     try {
       await this.probe();
       const object = await this.describe();
       return this.reportHealth(availabilityHealth(object.status ?? "unknown"));
     } catch (error) {
       const unsupported = (error as { code?: unknown })?.code === "not_supported";
-      return this.reportHealth({ status: unsupported ? "unknown" : "unhealthy", detail: unsupported ? "This device cannot confirm its physical state" : "Device health check failed" });
+      this.reportAvailability(unsupported ? "unknown" : "offline");
+      return this.reportHealth({ status: unsupported ? "unknown" : "unhealthy", detail: unsupported ? "This device cannot confirm its physical state" : "Device health check failed", ...(isUnreachableError(error) ? { reason: "unreachable" as const } : {}) });
     }
   }
 
@@ -246,8 +260,8 @@ export abstract class Device<Config = unknown> extends HealthReporter {
         value: (...args: unknown[]) => {
           try {
             const result = target[name]!.apply(capability, args);
-            return result instanceof Promise ? result.catch(error => { this.operationFailed(error); throw error; }) : result;
-          } catch (error) { this.operationFailed(error); throw error; }
+            return result instanceof Promise ? result.catch(error => { this.operationFailed(error, capability.controlIds.includes(name)); throw error; }) : result;
+          } catch (error) { this.operationFailed(error, capability.controlIds.includes(name)); throw error; }
         },
         enumerable: false,
         configurable: true,
@@ -257,9 +271,59 @@ export abstract class Device<Config = unknown> extends HealthReporter {
     return capabilities;
   }
 
-  /** The device's availability, from a fresh `describe()`. */
-  async availability(): Promise<Availability> {
-    return (await this.describe()).status ?? "unknown";
+  /** Latest observation, without contacting hardware. Logical controls inherit it transitively. */
+  availability(): Availability {
+    if (!this.enabled) return "offline";
+    if (!this.availabilitySources.length) return this.observedAvailability;
+    const values = this.availabilitySources.map(source => source.availability());
+    return values.includes("unknown") ? "unknown" : combinedAvailability(values);
+  }
+
+  /** Publish a physical observation (including a reader's timeout); late reads cannot undo it. */
+  reportAvailability(availability: Availability): void {
+    this.availabilityRevision++;
+    const changed = this.observedAvailability !== availability;
+    this.observedAvailability = availability;
+    this.availabilityAt = new Date().toISOString();
+    if (changed || !this.enabled || availability === "unknown") for (const listener of this.availabilityListeners) {
+      try { listener(); }
+      catch { console.warn(JSON.stringify({ event: "availability_report_delivery_failed" })); }
+    }
+  }
+
+  /** Observe inherited changes as well as this device's own observations. */
+  subscribeAvailability(listener: () => void): () => void {
+    let previous = this.availability();
+    const changed = () => {
+      const current = this.availability();
+      if (current === previous) return;
+      previous = current;
+      listener();
+    };
+    this.availabilityListeners.add(changed);
+    const releases = [...new Set(this.availabilitySources)].map(source => source.subscribeAvailability(changed));
+    return () => { this.availabilityListeners.delete(changed); for (const release of releases) release(); };
+  }
+
+  private get availabilityObservedAt(): string | null {
+    if (!this.availabilitySources.length) return this.availabilityAt;
+    const times = this.availabilitySources.map(source => source.availabilityObservedAt);
+    return times.some(time => time === null) ? null : (times as string[]).sort()[0]!;
+  }
+
+  override get health(): HealthCheck {
+    if (!this.availabilitySources.length || !this.enabled) return super.health;
+    const result = availabilityHealth(this.availability());
+    const checkedAt = this.availabilityObservedAt;
+    return checkedAt === null
+      ? { ...availabilityHealth("unknown"), status: "unknown", checkedAt: null }
+      : { ...result, checkedAt };
+  }
+
+  override subscribeHealth(listener: (health: HealthCheck) => void): () => void {
+    const own = super.subscribeHealth(listener);
+    const inherited = this.availabilitySources.length ? this.subscribeAvailability(() => listener(this.health)) : undefined;
+    return () => { own(); inherited?.(); };
   }
 
   /** Route one control to a named capability. */
@@ -274,10 +338,10 @@ export abstract class Device<Config = unknown> extends HealthReporter {
     }
   }
 
-  private operationFailed(error: unknown): void {
+  private operationFailed(error: unknown, control = true): void {
     // Invalid user input is not a device outage.
     if (!["invalid_value", "confirmation_required", "unknown_control", "not_supported"].includes(String((error as { code?: unknown })?.code))) {
-      this.reportHealth({ status: "degraded", detail: "A device operation failed" });
+      this.reportHealth(control ? { status: "unhealthy", detail: "A device operation failed", reason: "operation_failed" } : { status: "degraded", detail: "A device read failed" });
     }
   }
 
@@ -340,6 +404,7 @@ export abstract class Device<Config = unknown> extends HealthReporter {
 
   /** One validated HomeTruth object document composed from every capability's document. Not overridable. */
   async describe(): Promise<HomeTruthObject> {
+    const revision = ++this.availabilityRevision;
     try {
       const capabilities: Record<string, unknown> = {};
       const availabilities: Availability[] = [];
@@ -353,9 +418,9 @@ export abstract class Device<Config = unknown> extends HealthReporter {
       const sensors = await this.getSensors();
       availabilities.push(...sensors.map(sensor => sensor.state.availability));
       const identity = this.identity();
-      const observed = combinedAvailability(availabilities);
+      const observed = this.availabilitySources.length ? this.availability() : combinedAvailability(availabilities);
       if (!this.enabled) this.reportHealth({ status: "disabled", detail: "Disabled in HomeTruth" });
-      else if (observed === "offline" || observed === "degraded") this.reportHealth(availabilityHealth(observed));
+      else if (!this.availabilitySources.length && (observed === "offline" || observed === "degraded")) this.reportHealth(availabilityHealth(observed));
       // A cached online document must not erase a failed active health check.
       // Recovery is confirmed by checkHealth(), or an explicit device self-report.
       const candidate: unknown = {
@@ -364,7 +429,7 @@ export abstract class Device<Config = unknown> extends HealthReporter {
         name: this.name,
         health: this.health,
         ...(this.parent ? { parent: this.parent } : {}),
-        status: combinedAvailability(availabilities),
+        status: observed,
         manufacturer: this.model.manufacturer,
         model: identity?.model ?? this.model.product,
         ...(identity?.serialNumber ? { serialNumber: identity.serialNumber } : {}),
@@ -375,9 +440,11 @@ export abstract class Device<Config = unknown> extends HealthReporter {
       if (!validators.homeTruthObject(candidate)) {
         throw new Error(`Invalid object document for ${this.id}: ${describeValidationErrors(validators.homeTruthObject.errors)}`);
       }
+      if (!this.availabilitySources.length && revision === this.availabilityRevision) this.reportAvailability(observed);
       return candidate;
     } catch (error) {
-      this.reportHealth({ status: "unhealthy", detail: "Could not read device status" });
+      if (!this.availabilitySources.length && revision === this.availabilityRevision) this.reportAvailability("offline");
+      this.reportHealth({ status: "unhealthy", detail: "Could not read device status", ...(isUnreachableError(error) ? { reason: "unreachable" as const } : {}) });
       throw error;
     }
   }

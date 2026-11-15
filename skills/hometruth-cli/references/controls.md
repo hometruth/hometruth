@@ -1,14 +1,14 @@
 # Control reference
 
 These examples describe selected capability implementations. The current
-instance document (`ht <id> --json`) is authoritative for available actions
+instance document (`ht <address> --json`) is authoritative for available actions
 and bounds; do not assume every product with that capability has these controls.
 
 ## Capability documents
 
-`ht <id> --json` returns `{ id, name, page, model, config, secrets, controls, object }`.
-`controls` contains the API's method IDs. In text mode, `ht <id>` prints their
-friendly CLI names, and `ht <id> help` lists every command and option.
+`ht <address> --json` returns `{ id, name, page, model, config, secrets, controls, object }`.
+`controls` contains the API's method IDs. In text mode, `ht <address>` prints their
+friendly CLI names, and `ht <address> help` lists every command and option.
 `object` is the `homeTruthObjectSchema` document: `status` (device availability)
 and `capabilities.<kind>` each with `id`, `state`, and `actions`.
 
@@ -77,18 +77,18 @@ qualified: `infrared-blaster.send`, `radio-frequency-blaster.send`,
 | `send` | non-empty string | a Broadlink-packet base64 code; repeat bounds are advertised (1..20) but the generic control sends once |
 | `learn` | optional object | `{"timeoutMs": n, "frequencyHz": n}`; `frequencyHz` is RF-only; returns the learned signal; the user has to press the remote at the blaster while it runs |
 
-Saved codes are not in the document. `GET /api/ir-rf-blasters/<id>` returns
+Saved codes are not in the document. `GET /api/ir-rf-blasters/<address>` returns
 `{ infrared, radioFrequency, codes: [{ id, name, channel, code, learnedAt }] }`.
 Send a saved one by name by looking up its `code` and passing it to `send`, or
-`POST /api/ir-rf-blasters/<id>/codes/<codeId>/send` with an empty JSON body.
-Save a learned code with `POST /api/ir-rf-blasters/<id>/codes`
+`POST /api/ir-rf-blasters/<address>/codes/<codeId>/send` with an empty JSON body.
+Save a learned code with `POST /api/ir-rf-blasters/<address>/codes`
 `{"name": …, "channel": "infrared"|"radioFrequency", "code": …}`.
 
 Config: `host` (required), `devType`, `timeoutMs`.
 
 ## reboot
 
-`POST /api/devices/<id>/reboot` (no body). Only models with a recovery flow
+`POST /api/devices/<address>/reboot` (no body). Only models with a recovery flow
 support it; see the selected model's recovery guide. The flow: ONVIF at the configured
 address; if silent, ask the vendor cloud (saved app account) where the camera
 last reported; verify the serial so the wrong camera is never rebooted; send

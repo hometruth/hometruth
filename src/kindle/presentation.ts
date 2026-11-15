@@ -54,7 +54,7 @@ export function configuredItems(config: KindleConfig, site: Site): KindleItem[] 
   return [...site.list()].sort((a, b) => (a.room ?? "").localeCompare(b.room ?? "") || a.name.localeCompare(b.name)).map((device) => ({ deviceId: device.id, capability: "auto", mode: "auto", label: "" }));
 }
 
-function groupPrimitives(element: KindleElement, snapshot: GroupSnapshot, item: KindleItem, i18n: Translator): KindlePrimitive[] {
+function groupPrimitives(element: KindleElement, snapshot: GroupSnapshot, item: KindleItem, i18n: Translator, apiPath: (path: string) => string): KindlePrimitive[] {
   const kinds = item.capability === "auto" ? element.capabilities : [item.capability];
   const powerKind = element.capabilities.includes("light") ? "light" : "binarySwitch";
   return kinds.map(kind => {
@@ -75,7 +75,7 @@ function groupPrimitives(element: KindleElement, snapshot: GroupSnapshot, item: 
         const power = snapshot.properties.find(property => property.id === "power.on");
         const on = power?.status === "shared" && typeof power.value === "boolean" ? power.value : undefined;
         actions.push({ capability: kind, control: action.control, label: i18n.t(action.label),
-          url: `/api/device-groups/${encodeURIComponent(element.id)}/controls/${encodeURIComponent(shared.id)}`,
+          url: apiPath(`/api/device-groups/${encodeURIComponent(element.id)}/controls/${encodeURIComponent(shared.id)}`),
           ...(on === undefined || namespace !== "power" ? {} : { pressed: action.control === "turnOn" ? on : !on }),
           ...(shared.confirmation ? { confirmation: i18n.t("grouping.confirm", { action: i18n.t(action.label), count: snapshot.members.length }) } : {}),
         });
@@ -118,7 +118,7 @@ export interface KindleState {
 }
 
 /** Presentation is a pure projection of shipped state, including on a cold cache. */
-export function buildKindleSnapshot(site: Site, config: KindleConfig, state: KindleState, i18n: Translator): KindleSnapshot {
+export function buildKindleSnapshot(site: Site, config: KindleConfig, state: KindleState, i18n: Translator, apiPath: (path: string) => string = path => path): KindleSnapshot {
   const items = configuredItems(config, site);
   const elements = kindleElements(site);
   const widgetIds = config.canvas?.widgets.filter((widget) => widget.kind === "device").map((widget) => widget.id);
@@ -129,7 +129,7 @@ export function buildKindleSnapshot(site: Site, config: KindleConfig, state: Kin
       const missing = !element || !snapshot || item.capability !== "auto" && !element.capabilities.includes(item.capability);
       return { ...(widgetIds?.[index] ? { widgetId: widgetIds[index] } : {}), source: "group", deviceId: item.deviceId,
         label: item.label || element?.name || item.deviceId, room: element?.room ?? "", model: i18n.t("grouping.group"), missing,
-        availability: snapshot?.availability ?? "unknown", primitives: !missing && element && snapshot ? groupPrimitives(element, snapshot, item, i18n) : [],
+        availability: snapshot?.availability ?? "unknown", primitives: !missing && element && snapshot ? groupPrimitives(element, snapshot, item, i18n, apiPath) : [],
       };
     }
     const device = site.get(item.deviceId);

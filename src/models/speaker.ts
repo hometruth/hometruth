@@ -113,6 +113,10 @@ export abstract class Speaker extends Capability<SpeakerDocument> {
     return false;
   }
 
+  /** Available when the adapter can serve local sound assets to the player. */
+  supportsSounds(): boolean { return false; }
+  async playSound(_sound: "dinnerBell"): Promise<void> { throw new SpeakerError("Local sounds are not available", "protocol"); }
+
   /** Speak `text` through this speaker. Only called when `supportsSay()` is true. */
   async say(_text: string, _options?: { volumePercent?: number }): Promise<void> {
     throw new SpeakerError("This speaker has no say control", "protocol");

@@ -10,11 +10,12 @@
  * The field is `type="password"` so a password manager offers to keep the
  * token, and so it is not left legible on a screen in a kitchen.
  */
+import { PASSKEY_SCRIPT } from "./passkey-script";
 import { escapeHtml, renderPage, type PageContext } from "./shell";
 
 /** A path this server would route to, so the redirect cannot be aimed off-site. */
 export function safeNext(value: string | undefined): string {
-  if (!value || !value.startsWith("/") || value.startsWith("//")) return "/";
+  if (!value || !value.startsWith("/") || value.startsWith("//") || /[\\\x00-\x20\x7f]/u.test(value) || value.split("?")[0] === "/sign-in") return "/";
   return value;
 }
 
@@ -48,6 +49,8 @@ export function renderSignInPage(ctx: PageContext, next = "/", localNetwork: Loc
       <h1>${escapeHtml(t("auth.signIn.title"))}</h1>
       <p>${escapeHtml(t("auth.signIn.intro"))}</p>
       ${localNetwork === "off" ? "" : `<p class="note" data-local-network="${localNetwork}">${escapeHtml(t(localNetwork === "trusted" ? "auth.signIn.localNetwork" : "auth.signIn.localNetworkUnseen"))}</p>`}
+      <div class="bar"><button type="button" class="btn btn-primary" data-passkey-sign-in hidden>${escapeHtml(t("auth.passkey.signIn"))}</button></div>
+      <p class="note" data-passkey-unavailable hidden>${escapeHtml(t("auth.passkey.unavailable"))}</p>
       <form data-sign-in>
         <input type="hidden" name="next" value="${escapeHtml(safeNext(next))}">
         <label class="field"><span>${escapeHtml(t("auth.signIn.token"))}</span>
@@ -59,9 +62,19 @@ export function renderSignInPage(ctx: PageContext, next = "/", localNetwork: Loc
     </section>`,
     script: `
       (() => {
+        ${PASSKEY_SCRIPT}
         const form = document.querySelector("[data-sign-in]");
         const feedback = document.querySelector("[data-sign-in-feedback]");
         if (!(form instanceof HTMLFormElement)) return;
+        const passkeyButton = document.querySelector("[data-passkey-sign-in]");
+        passkeyButton.hidden = !passkeysSupported;
+        document.querySelector("[data-passkey-unavailable]").hidden = !!passkeysSupported;
+        passkeyButton.addEventListener("click", async () => {
+          passkeyButton.disabled = true;
+          try { await signInWithPasskey(); window.location.assign(form.elements.namedItem("next").value || "/"); }
+          catch { ht.say(feedback, ht.t("auth.passkey.failed"), "bad"); }
+          finally { passkeyButton.disabled = false; }
+        });
         form.addEventListener("submit", async (event) => {
           event.preventDefault();
           const token = form.elements.namedItem("token").value.trim();
@@ -69,8 +82,8 @@ export function renderSignInPage(ctx: PageContext, next = "/", localNetwork: Loc
           try {
             await ht.request("/api/auth/sign-in", { method: "POST", body: JSON.stringify({ token }) });
             window.location.assign(form.elements.namedItem("next").value || "/");
-          } catch {
-            ht.say(feedback, ht.t("auth.signIn.failed"), "bad");
+          } catch (error) {
+            ht.say(feedback, error.message || ht.t("auth.signIn.failed"), "bad");
           }
         });
       })();

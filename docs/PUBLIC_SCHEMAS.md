@@ -48,27 +48,39 @@ gitleaks dir dist/schema-hosting --redact --no-banner --ignore-gitleaks-allow
 
 The configuration is `scripts/schema-hosting/wrangler.jsonc`. Production binds
 `hometruth.ai` as a Worker Custom Domain. The zone must be active in the
-deploying Cloudflare account; Cloudflare then manages DNS and TLS. Since a
-Custom Domain handles the entire hostname, paths outside `/schemas/` currently
-return 404. If a main website is later deployed, move this Worker to a
-`hometruth.ai/schemas/*` route in front of that site's proxied hostname.
+deploying Cloudflare account; Cloudflare then manages DNS and TLS. The same
+Worker can serve a disconnected [static playground](STATIC_DEMO.md) at `/demo`
+and its HTML and assets beneath `/demo/`. All other unknown paths return 404.
+The demo has no installation service bindings and cannot proxy API requests.
 
 Authenticate with Wrangler outside the source checkout, or supply
 `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` through local secret storage or
 a trusted deployment job. Never put credentials in the config or public CI.
 
 ```sh
-# Build and check the production configuration without publishing:
-bun run schemas:deploy --dry-run
-# Publish to the separate workers.dev preview, without changing production DNS:
-bun run schemas:deploy --env preview
-# Publish the canonical domain after its Cloudflare zone is active:
-bun run schemas:deploy
+# Build and check a schema-only deployment without publishing:
+bun run schemas:deploy --schemas-only --dry-run
+# Build and check a demo deployment without publishing:
+bun run schemas:deploy --demo-export /absolute/private/playground --output /absolute/private/hosting --dry-run
+# Scan both exact deployment artifacts:
+gitleaks dir /absolute/private/playground --redact --no-banner --ignore-gitleaks-allow
+gitleaks dir /absolute/private/hosting --redact --no-banner --ignore-gitleaks-allow
+# Publish schemas with a reviewed demo export, keeping all artifacts outside source:
+bun run schemas:deploy --demo-export /absolute/private/playground --output /absolute/private/hosting
 ```
 
-Every deploy rebuilds from the definitions; it cannot silently reuse stale
-output. Public CI checks compilation and publication tests but does not deploy.
-The preview uses the same canonical `$id` values as production.
+The deployment command requires either `--demo-export` or `--schemas-only`.
+The bundled host requires exports with the `/demo` base path.
+The latter deliberately removes any hosted demo. `--dry-run` and `--env preview`
+are passed to Wrangler. Public CI checks compilation and publication tests but
+does not deploy. The preview uses the same canonical `$id` values as production.
+
+To add or update the demo while retaining an existing schema publication, pass
+`--schema-documents /absolute/private/published-schemas.json`, containing the
+reviewed JSON array of already published documents. Without that option the
+build uses current source definitions. The hosting build writes an independent
+Worker and Wrangler configuration beside the export, and points its static asset
+binding directly at the export. No installation export is copied into source.
 
 After production deploys, verify the catalog and a nested model schema:
 

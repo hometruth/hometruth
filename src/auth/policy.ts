@@ -52,11 +52,16 @@ export const PUBLIC_ROUTES: ReadonlySet<string> = new Set([
   // The credential exchange itself, and the page that performs it.
   "GET /sign-in",
   "POST /api/auth/sign-in",
+  "POST /api/auth/passkeys/authenticate/options",
+  "POST /api/auth/passkeys/authenticate/verify",
   // Theme modules: the same static, type-stripped UI code for every caller,
   // carrying no site data. The sign-in page needs them to render like the rest.
   "GET /ui/:version/*",
+  // Static synthesized audio, with no installation or user data.
+  "GET /local-media/sounds/dinner-bell.wav",
   "GET /ht.ts",
   "GET /ht.js",
+  "GET /ht-cli.js",
   // The theme/appearance/language cookie, so sign-in honours the same choice.
   "POST /ui/preferences",
 ]);
@@ -75,12 +80,37 @@ const p = (permission: Permission, target: PolicyTarget): RoutePolicy => ({ perm
  * completeness test can compare the two lists directly.
  */
 export const ROUTE_POLICIES: Readonly<Record<string, RoutePolicy>> = {
+  // MCP discovers only visible rows; every operation re-enters its own REST policy.
+  "POST /mcp": p("read", listing),
+  "GET /mcp": p("read", listing),
+  "DELETE /mcp": p("read", listing),
+  "GET /SKILL.md": p("read", listing),
+  "GET /bridges": p("admin", site),
+  "GET /bridges/:id": p("admin", site),
+  "GET /api/bridges": p("admin", site),
+  "POST /api/bridges": p("admin", site),
+  "GET /api/bridges/catalog": p("admin", site),
+  "GET /api/bridges/options/:key": p("admin", site),
+  "GET /api/bridges/:id": p("admin", site),
+  "GET /api/bridges/:id/stream": p("admin", site),
+  "PUT /api/bridges/:id": p("admin", site),
+  "DELETE /api/bridges/:id": p("admin", site),
+  "POST /api/bridges/:id/pair": p("admin", site),
+  "GET /api/bridges/:id/qr": p("admin", site),
+  "PUT /api/bridges/:id/members/:key": p("admin", site),
+  "DELETE /api/bridges/:id/members/:key": p("admin", site),
   "GET /health": p("read", site),
+  "GET /health/investigations/:investigationId": p("read", site),
+  "GET /api/health/investigations": p("read", site),
+  "GET /api/health/investigations/stream": p("read", site),
+  "GET /api/health/investigations/:investigationId": p("read", site),
   "GET /api/health/report": p("read", site),
   "GET /api/devices/:id/health": p("read", device()),
   "POST /api/devices/:id/health/check": p("read", device()),
+  "PUT /api/devices/:id/health/policy": p("admin", device()),
   "GET /api/services/:id/health": p("read", site),
   "POST /api/services/:id/health/check": p("read", site),
+  "PUT /api/services/:id/health/policy": p("admin", site),
   ...Object.fromEntries(API_PAGE_PATTERNS.flatMap(pattern => {
     const target = pattern === "/elements/:key" ? element() : pattern.startsWith("/schemas/") ? listing : !pattern.includes(":") ? site : page;
     return API_FILES.map(file => [`GET ${pattern}/${file}`, p("read", target)]);
@@ -88,6 +118,13 @@ export const ROUTE_POLICIES: Readonly<Record<string, RoutePolicy>> = {
   // ---- Session ------------------------------------------------------------
   "POST /api/auth/sign-out": p("read", listing),
   "GET /api/auth/whoami": p("read", listing),
+  "GET /settings/security": p("read", listing),
+  "GET /api/auth/sessions": p("read", listing),
+  "POST /api/auth/sessions/:id/revoke": p("read", listing),
+  "GET /api/auth/passkeys": p("read", listing),
+  "POST /api/auth/passkeys/:id/revoke": p("read", listing),
+  "POST /api/auth/passkeys/register/options": p("read", listing),
+  "POST /api/auth/passkeys/register/verify": p("read", listing),
 
   // ---- Tokens: administering access is itself site administration ---------
   "GET /settings/tokens": p("admin", site),
@@ -111,7 +148,7 @@ export const ROUTE_POLICIES: Readonly<Record<string, RoutePolicy>> = {
   // reaches, which is what makes `listing` the honest target here.
   "GET /api/openapi.json": p("read", listing),
   "GET /api/inventory": p("read", listing),
-  "GET /api/inventory/:uuid": p("read", listing),
+  "GET /api/inventory/:address": p("read", listing),
   "POST /api/playground": p("read", listing),
   "GET /api-docs": p("read", listing),
 
@@ -121,6 +158,7 @@ export const ROUTE_POLICIES: Readonly<Record<string, RoutePolicy>> = {
   "GET /api/device-groups": p("read", listing),
   "GET /api/elements": p("read", site),
   "GET /api/graph": p("read", site),
+  "GET /api/graph/scene": p("read", site),
   "GET /api/rooms": p("read", site),
   "GET /api/services": p("read", site),
   "GET /api/tags": p("read", site),
@@ -131,6 +169,8 @@ export const ROUTE_POLICIES: Readonly<Record<string, RoutePolicy>> = {
   "GET /buttons": p("read", listing),
   "GET /groups": p("read", listing),
   "GET /graph": p("read", site),
+  "GET /rooms": p("read", site),
+  "GET /rooms/:slug": p("read", site),
   "GET /tags": p("read", site),
   "GET /tags/:slug": p("read", site),
   "GET /tags/:name/:slug": p("read", site),
@@ -143,9 +183,11 @@ export const ROUTE_POLICIES: Readonly<Record<string, RoutePolicy>> = {
   // ---- Element pages and tagging -----------------------------------------
   "GET /api/elements/:key": p("read", element()),
   "GET /api/elements/:key/tags": p("read", element()),
-  "GET /api/graph/:key": p("read", element()),
   "GET /elements/:key": p("read", element()),
-  "GET /elements/:key/graph": p("read", element()),
+  "GET /elements/:key/log": p("read", element()),
+  "GET /api/elements/:key/events": p("read", element()),
+  "GET /api/elements/:key/events/stream": p("read", element()),
+  "GET /services/:slug/log": p("read", page),
   "POST /api/elements/:key/tags": p("admin", element()),
   "DELETE /api/elements/:key/tags/:id": p("admin", element()),
 
@@ -229,6 +271,8 @@ export const ROUTE_POLICIES: Readonly<Record<string, RoutePolicy>> = {
   "POST /api/ir-rf-blasters/:id/codes/:codeId/delete": p("admin", device()),
   "POST /api/radio-receivers/:id/codes": p("admin", device()),
   "POST /api/radio-receivers/:id/codes/:codeId/delete": p("admin", device()),
+  "POST /api/buttons/:id/workflow/preview": p("read", device()),
+  "POST /api/buttons/:id/workflow/cancel": p("write", device()),
   "PUT /api/buttons/:id/workflow": p("admin", device()),
   "PUT /api/cameras/:id/light-sync/region": p("admin", device()),
   "DELETE /api/cameras/:id/light-sync/region": p("admin", device()),
@@ -322,7 +366,6 @@ export const ROUTE_POLICIES: Readonly<Record<string, RoutePolicy>> = {
     ["devices", "switches", "lights", "string-lights", "buttons", "cameras", "sensors", "hubs", "blasters", "speakers", "groups"]
       .flatMap(prefix => [
         [`GET /${prefix}/:slug`, p("read", page)],
-        [`GET /${prefix}/:slug/graph`, p("read", page)],
         [`GET /${prefix}/:slug/log`, p("read", page)],
         [`GET /${prefix}/:slug/light-sync`, p("admin", page)],
         [`GET /${prefix}/:slug/settings`, p("admin", page)],

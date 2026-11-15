@@ -40,8 +40,12 @@ describe("devices configuration", () => {
     const config = parseDevicesConfig(example, "devices.example.yml");
     expect(config.devices?.map((entry) => entry.model)).toEqual([
       "airgradient-one",
+      "enphase-envoy",
       "tkenpro-2k-pet-camera-treat-dispenser",
       "shelly-plus-1",
+      "tplink-kasa-plug",
+      "tplink-kasa-energy-meter",
+      "tplink-kasa-plug",
       "elgato-key-light-air",
       "broadlink-rm4-pro",
       "wyze-cam-v3",
@@ -53,6 +57,16 @@ describe("devices configuration", () => {
       "aqara-door-window-sensor",
       "ring-bridge",
       "ring-smart-light",
+      "rachio-controller",
+      "rachio-zone",
+      "rachio-rain-delay",
+      "litter-robot-4",
+      "litter-robot-4-switch",
+      "litter-robot-4-button",
+      "roborock-vacuum",
+      "roborock-vacuum-action",
+      "roborock-vacuum-action",
+      "internet-access-switch",
     ]);
     for (const documented of devicesConfigSchema.examples) {
       expect(validators.devicesConfig(documented)).toBe(true);

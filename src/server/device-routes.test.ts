@@ -17,7 +17,6 @@ import { DeviceNetworkRecovery } from "../network/recovery";
 import type { CameraDiscoverRequest } from "../schemas";
 import { Site } from "../site";
 import { validators } from "../validation";
-import type { MatterSettingsSource } from "../integrations/matter/settings";
 
 class MemorySwitch extends BinarySwitch {
   constructor(id: string, private state: BinarySwitchState = "off") {
@@ -62,7 +61,7 @@ class SwitchDevice extends Device<{ host: string }> {
   async probe(): Promise<DeviceIdentity> { return {}; }
 }
 
-function fixture(matterSettings?: MatterSettingsSource) {
+function fixture() {
   const discoverRequests: CameraDiscoverRequest[] = [];
   const service = new CameraService({
     cameraHosts: ["10.78.0.147"],
@@ -97,7 +96,7 @@ function fixture(matterSettings?: MatterSettingsSource) {
     new SwitchDevice("dead", "dead", new UnreachableSwitch("dead")),
   ]);
   const hub = new StateHub();
-  const app = createApp(service, site, undefined, undefined, undefined, undefined, undefined, undefined, matterSettings, undefined, undefined, undefined, hub);
+  const app = createApp(service, site, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, hub);
   const json = (path: string, method = "GET") => app.request(path, method === "POST"
     ? { method, headers: { "content-type": "application/json" }, body: "{}" }
     : { method });
@@ -133,26 +132,14 @@ describe("device pages", () => {
     }
   });
 
-  test("shows bridge pairing on an exported switch's Settings tab only", async () => {
-    const matterSettings: MatterSettingsSource = {
-      async read() {
-        return {
-          running: true,
-          commissioned: false,
-          switchIds: ["relay", "dead"],
-          qrCodeDataUrl: "data:image/png;base64,AQID",
-          manualPairingCode: "12345678901",
-        };
-      },
-    };
-    const { app, hub } = fixture(matterSettings);
-    await hub.data.refresh();
-    const relayHtml = await (await app.request("/switches/porch-relay/settings")).text();
-    expect(relayHtml).toContain("data-matter-pairing-qr");
-    expect(relayHtml).toContain("12345678901");
-    const cameraHtml = await (await app.request("/cameras/kitchen-pet-camera/settings")).text();
-    expect(cameraHtml).toContain("The Matter bridge exports switches only.");
-    expect(cameraHtml).not.toContain("data-matter-pairing-qr");
+  test("shows bridge membership on switch and camera settings pages", async () => {
+    const { app } = fixture();
+    for (const page of ["/switches/porch-relay/settings", "/cameras/kitchen-pet-camera/settings"]) {
+      const html = await (await app.request(page)).text();
+      expect(html).toContain("data-bridge-membership");
+      expect(html).toContain('href="/bridges"');
+      expect(html).not.toContain("data-matter-pairing-qr");
+    }
   });
 
   test("lists configured devices at /devices and links to each device page", async () => {
@@ -195,9 +182,9 @@ describe("device pages", () => {
 
   test("every device has a live aggregate log page and ring-buffer API", async () => {
     const { app, json } = fixture();
-    expect((await json("/api/switches/relay/turn-on", "POST")).status).toBe(200);
+    expect((await json("/api/switches/porch-relay/turn-on", "POST")).status).toBe(200);
 
-    const response = await json("/api/devices/relay/events");
+    const response = await json("/api/devices/porch-relay/events");
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(validators.deviceEventsResponse(body)).toBe(true);
@@ -253,7 +240,7 @@ describe("device pages", () => {
 
     const body = await (await app.request("/api/events")).json();
     expect(validators.eventsResponse(body)).toBe(true);
-    expect(body.events.map((event: { type: string }) => event.type).sort()).toEqual(["availability_changed", "device_control", "network_error", "started"]);
+    expect(body.events.map((event: { type: string }) => event.type).sort()).toEqual(["availability_changed", "device_control", "device_control_requested", "network_error", "started"]);
     expect(body.subjects).toEqual(["relay"]);
     expect(body.events.map((event: { at: string }) => event.at)).toEqual(body.events.map((event: { at: string }) => event.at).toSorted().reverse());
 
@@ -367,7 +354,7 @@ describe("device pages", () => {
       recovery,
     );
 
-    const network = await app.request("/api/devices/keylight/network");
+    const network = await app.request("/api/devices/key-light/network");
     expect(network.status).toBe(200);
     expect(await network.json()).toMatchObject({
       configuredMac: client.mac,
@@ -379,7 +366,7 @@ describe("device pages", () => {
     for (const online of [false, true, false, true, false]) {
       relay.online = online;
       const [home, list, detail, state] = await Promise.all([
-        app.request("/devices"), app.request("/api/devices"), app.request("/api/devices/keylight"), app.request("/api/switches/keylight"),
+        app.request("/devices"), app.request("/api/devices"), app.request("/api/devices/key-light"), app.request("/api/switches/key-light"),
       ]);
       expect(home.status).toBe(200);
       expect(list.status).toBe(200);
@@ -390,7 +377,7 @@ describe("device pages", () => {
     expect(kicked).toEqual([]);
     expect(lookedUp).toEqual([client.mac]);
 
-    const manual = await app.request("/api/devices/keylight/network/reconnect", {
+    const manual = await app.request("/api/devices/key-light/network/reconnect", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: "{}",
@@ -410,7 +397,7 @@ describe("device pages", () => {
   test("the reconnect route rejects unknown devices and servers without managed Wi-Fi", async () => {
     const { app, json } = fixture();
     expect((await json("/api/devices/nope/network/reconnect", "POST")).status).toBe(404);
-    const unavailable = await json("/api/devices/relay/network/reconnect", "POST");
+    const unavailable = await json("/api/devices/porch-relay/network/reconnect", "POST");
     expect(unavailable.status).toBe(409);
     expect(await unavailable.json()).toMatchObject({ error: { code: "not_supported" } });
   });
@@ -429,7 +416,7 @@ describe("device pages", () => {
     const app = createApp(undefined, new Site([fan, light]), undefined, undefined, undefined, recovery);
     try {
       for (let load = 0; load < 5; load++) {
-        const responses = await Promise.all(["/api/devices", "/api/devices/fan", "/api/devices/light", "/api/switches/fan", "/api/lights/light"].map(path => app.request(path)));
+        const responses = await Promise.all(["/api/devices", "/api/devices/exhaust-fan", "/api/devices/kitchen-lights", "/api/switches/exhaust-fan", "/api/lights/kitchen-lights"].map(path => app.request(path)));
         expect(responses.every(response => response.status === 200)).toBe(true);
         expect(await responses[0]!.json()).toMatchObject({ devices: [{ id: "fan", availability: "offline" }, { id: "light", availability: "offline" }] });
       }
@@ -449,42 +436,42 @@ describe("device pages", () => {
       expect(validators.binarySwitch(body)).toBe(true);
       return (body as { state: { value?: string } }).state.value;
     };
-    expect(await read(await json("/api/switches/relay"))).toBe("off");
-    expect(await read(await json("/api/switches/relay/turn-on", "POST"))).toBe("on");
-    expect(await read(await json("/api/switches/relay/toggle", "POST"))).toBe("off");
-    expect(await read(await json("/api/switches/relay/toggle", "POST"))).toBe("on");
-    expect(await read(await json("/api/switches/relay/turn-off", "POST"))).toBe("off");
+    expect(await read(await json("/api/switches/porch-relay"))).toBe("off");
+    expect(await read(await json("/api/switches/porch-relay/turn-on", "POST"))).toBe("on");
+    expect(await read(await json("/api/switches/porch-relay/toggle", "POST"))).toBe("off");
+    expect(await read(await json("/api/switches/porch-relay/toggle", "POST"))).toBe("on");
+    expect(await read(await json("/api/switches/porch-relay/turn-off", "POST"))).toBe("off");
   });
 
   test("GET state reads a switch without a control event and supersedes POST getState", async () => {
     const { hub, json } = fixture();
     try {
-      const response = await json("/api/switches/relay/state");
+      const response = await json("/api/switches/porch-relay/state");
       expect(response.status).toBe(200);
       expect(response.headers.get("cache-control")).toBe("no-store");
       expect(await response.json()).toMatchObject({ availability: "online", value: "off", observedAt: expect.any(String) });
       expect(hub.snapshot(["device/relay"])[0]?.value).toMatchObject({ capabilities: { binarySwitch: { state: { value: "off" } } } });
-      const events = await (await json("/api/devices/relay/events")).json();
+      const events = await (await json("/api/devices/porch-relay/events")).json();
       expect(JSON.stringify(events)).not.toContain('"type":"device_control"');
-      for (const path of ["/api/devices/relay/controls/getState", "/api/devices/relay/controls/binarySwitch.getState", "/api/devices/relay/capabilities/binarySwitch/controls/getState"]) {
+      for (const path of ["/api/devices/porch-relay/controls/getState", "/api/devices/porch-relay/controls/binarySwitch.getState", "/api/devices/porch-relay/capabilities/binarySwitch/controls/getState"]) {
         expect((await json(path, "POST")).status).toBe(404);
       }
       expect((await json("/api/switches/missing/state")).status).toBe(404);
-      expect((await json("/api/switches/kitchen/state")).status).toBe(404);
-      expect((await json("/api/switches/relay/state", "POST")).status).toBe(404);
+      expect((await json("/api/switches/kitchen-pet-camera/state")).status).toBe(404);
+      expect((await json("/api/switches/porch-relay/state", "POST")).status).toBe(404);
     } finally { hub.stop(); }
   });
 
   test("guards switch changes the same way as camera changes and maps switch errors", async () => {
     const { app, json } = fixture();
-    const formPost = await app.request("/api/switches/relay/turn-on", {
+    const formPost = await app.request("/api/switches/porch-relay/turn-on", {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body: "on=1",
     });
     expect(formPost.status).toBe(415);
 
-    const crossOrigin = await app.request("http://127.0.0.1/api/switches/relay/turn-on", {
+    const crossOrigin = await app.request("http://127.0.0.1/api/switches/porch-relay/turn-on", {
       method: "POST",
       headers: { "content-type": "application/json", origin: "https://evil.example" },
       body: "{}",
@@ -495,7 +482,7 @@ describe("device pages", () => {
     expect(missing.status).toBe(404);
     expect(await missing.json()).toMatchObject({ error: { code: "not_found" } });
 
-    const notASwitch = await json("/api/switches/kitchen");
+    const notASwitch = await json("/api/switches/kitchen-pet-camera");
     expect(notASwitch.status).toBe(404);
 
     const unreachable = await json("/api/switches/dead/turn-on", "POST");
@@ -512,8 +499,15 @@ describe("device pages", () => {
     expect(modelsBody.models.map((model) => [model.id, model.capabilities])).toEqual([
       ["bosch-nitp060uc", ["cooktop"]],
       ["cooktop-child-lock", ["binarySwitch"]],
+      ["litter-robot-4", ["sensor"]],
+      ["litter-robot-4-switch", ["binarySwitch"]],
+      ["litter-robot-4-button", ["button"]],
       ["tkenpro-2k-pet-camera-treat-dispenser", ["camera", "treatDispenser", "motionSensor"]],
       ["shelly-plus-1", ["binarySwitch"]],
+      ["tplink-kasa-plug", ["binarySwitch"]],
+      ["tplink-kasa-energy-meter", ["sensor"]],
+      ["roborock-vacuum", ["sensor"]],
+      ["roborock-vacuum-action", ["button"]],
       ["lutron-caseta-switch", ["binarySwitch"]],
       ["lutron-caseta-dimmer", ["light"]],
       ["elgato-key-light-air", ["light"]],
@@ -534,19 +528,24 @@ describe("device pages", () => {
       ["action-button", ["button"]],
       ["workflow-button", ["button"]],
       ["optimistic-switch", ["binarySwitch"]],
+      ["internet-access-switch", ["binarySwitch"]],
       ["aqara-hub-m2", ["hub"]],
       ["aqara-presence-sensor-fp2", ["occupancySensor"]],
       ["aqara-door-window-sensor", ["contactSensor"]],
       ["ring-bridge", ["hub"]],
       ["ring-smart-light", ["light"]],
+      ["rachio-controller", ["hub", "binarySwitch", "button", "sensor"]],
+      ["rachio-zone", ["binarySwitch"]],
+      ["rachio-rain-delay", ["binarySwitch"]],
       ["airgradient-one", ["sensor"]],
+      ["enphase-envoy", ["sensor"]],
       ["govee-h5075", []],
       ["govee-h7021", ["stringLight"]],
       ["govee-h7021-bulb", ["light"]],
     ]);
     expect(modelsBody.models.find((model) => model.id === "tkenpro-2k-pet-camera-treat-dispenser")?.configSchema.properties).toHaveProperty("serialNumber");
 
-    const relay = await json("/api/devices/relay");
+    const relay = await json("/api/devices/porch-relay");
     expect(relay.status).toBe(200);
     const relayBody = await relay.json() as { model: { id: string; capabilities: string[] }; config: unknown; object: { status: string; capabilities: Record<string, unknown> } };
     expect(validators.deviceDetailResponse(relayBody)).toBe(true);
@@ -556,7 +555,7 @@ describe("device pages", () => {
     expect(Object.keys(relayBody.object.capabilities)).toEqual(["binarySwitch"]);
 
     await json("/api/camera/discover", "POST");
-    const kitchen = await (await json("/api/devices/kitchen")).json() as { model: { id: string }; object: { status: string; model: string; capabilities: Record<string, unknown> } };
+    const kitchen = await (await json("/api/devices/kitchen-pet-camera")).json() as { model: { id: string }; object: { status: string; model: string; capabilities: Record<string, unknown> } };
     expect(validators.petTreatDispenserCamera(kitchen.object)).toBe(true);
     expect(kitchen.model.id).toBe("tkenpro-2k-pet-camera-treat-dispenser");
     expect(kitchen.object).toMatchObject({ status: "online", model: "Pet 3T" });
@@ -572,28 +571,28 @@ describe("device pages", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     });
-    const on = await invoke("/api/devices/relay/capabilities/binarySwitch/controls/turnOn");
+    const on = await invoke("/api/devices/porch-relay/capabilities/binarySwitch/controls/turnOn");
     expect(on.status).toBe(200);
     const onBody = await on.json() as { object: { capabilities: { binarySwitch: { state: { value: string } } } } };
     expect(onBody.object.capabilities.binarySwitch.state.value).toBe("on");
-    expect((await json("/api/switches/relay")).status).toBe(200);
-    expect(((await (await json("/api/switches/relay")).json()) as { state: { value: string } }).state.value).toBe("on");
+    expect((await json("/api/switches/porch-relay")).status).toBe(200);
+    expect(((await (await json("/api/switches/porch-relay")).json()) as { state: { value: string } }).state.value).toBe("on");
 
-    const unknownControl = await invoke("/api/devices/relay/capabilities/binarySwitch/controls/explode");
+    const unknownControl = await invoke("/api/devices/porch-relay/capabilities/binarySwitch/controls/explode");
     expect(unknownControl.status).toBe(404);
     expect(await unknownControl.json()).toMatchObject({ error: { code: "unknown_control" } });
 
-    const noCapability = await invoke("/api/devices/relay/capabilities/light/controls/turnOn");
+    const noCapability = await invoke("/api/devices/porch-relay/capabilities/light/controls/turnOn");
     expect(noCapability.status).toBe(404);
     expect(await noCapability.json()).toMatchObject({ error: { code: "no_such_capability" } });
 
-    const badKind = await invoke("/api/devices/relay/capabilities/toaster/controls/turnOn");
+    const badKind = await invoke("/api/devices/porch-relay/capabilities/toaster/controls/turnOn");
     expect(badKind.status).toBe(404);
 
-    const badBody = await invoke("/api/devices/relay/capabilities/binarySwitch/controls/turnOn", { confirmed: "yes" });
+    const badBody = await invoke("/api/devices/porch-relay/capabilities/binarySwitch/controls/turnOn", { confirmed: "yes" });
     expect(badBody.status).toBe(400);
 
-    const noReboot = await invoke("/api/devices/relay/reboot");
+    const noReboot = await invoke("/api/devices/porch-relay/reboot");
     expect(noReboot.status).toBe(409);
   });
 
@@ -604,22 +603,22 @@ describe("device pages", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     });
-    const relay = await (await json("/api/devices/relay")).json() as { controls: string[] };
+    const relay = await (await json("/api/devices/porch-relay")).json() as { controls: string[] };
     expect(relay.controls).toEqual(["turnOn", "turnOff", "toggle"]);
 
-    const on = await invoke("/api/devices/relay/controls/turnOn");
+    const on = await invoke("/api/devices/porch-relay/controls/turnOn");
     expect(on.status).toBe(200);
     expect((await on.json() as { object: { capabilities: { binarySwitch: { state: { value: string } } } } }).object.capabilities.binarySwitch.state.value).toBe("on");
-    const qualified = await invoke("/api/devices/relay/controls/binarySwitch.toggle");
+    const qualified = await invoke("/api/devices/porch-relay/controls/binarySwitch.toggle");
     expect(qualified.status).toBe(200);
     expect((await qualified.json() as { object: { capabilities: { binarySwitch: { state: { value: string } } } } }).object.capabilities.binarySwitch.state.value).toBe("off");
 
-    const unknown = await invoke("/api/devices/relay/controls/explode");
+    const unknown = await invoke("/api/devices/porch-relay/controls/explode");
     expect(unknown.status).toBe(404);
     expect(await unknown.json()).toMatchObject({ error: { code: "unknown_control" } });
-    const wrongCapability = await invoke("/api/devices/relay/controls/light.turnOn");
+    const wrongCapability = await invoke("/api/devices/porch-relay/controls/light.turnOn");
     expect(wrongCapability.status).toBe(404);
-    expect((await invoke("/api/devices/relay/controls/turnOn", { confirmed: "yes" })).status).toBe(400);
+    expect((await invoke("/api/devices/porch-relay/controls/turnOn", { confirmed: "yes" })).status).toBe(400);
     expect((await invoke("/api/devices/nope/controls/turnOn")).status).toBe(404);
   });
 });

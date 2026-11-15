@@ -32,7 +32,7 @@ export interface EventFilter {
   readonly labels?: readonly string[];
   /** Inclusive upper time bound used while browsing older label events. */
   readonly atOrBefore?: string;
-  /** Only events about this device. */
+  /** Only events about this subject (a device id or element key). */
   readonly subject?: string;
   /** Only events of these types. */
   readonly types?: readonly string[];

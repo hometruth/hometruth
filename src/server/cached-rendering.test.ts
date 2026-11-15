@@ -26,15 +26,14 @@ test("mainstream HTML and graph reads render cached state while every source is 
   signals.snapshot = () => { metadataReads++; return new Promise(() => {}); };
   const kindle = new MemoryKindleConfigStore();
   kindle.load = () => { metadataReads++; return new Promise(() => {}); };
-  const matter = { read: () => { metadataReads++; return new Promise<never>(() => {}); } };
   const site = new Site([device]);
   const hub = new StateHub(), tags = new TagStore();
   cleanup.push(() => hub.stop(), () => tags.close());
-  const app = createApp(undefined, site, signals, undefined, undefined, undefined, undefined, undefined, matter, kindle, undefined, tags, hub);
+  const app = createApp(undefined, site, signals, undefined, undefined, undefined, undefined, undefined, undefined, kindle, undefined, tags, hub);
   hub.observer.publish(device.id, value);
   const reads = metadataReads;
   const page = site.view(device.id)!.page;
-  for (const path of ["/", "/devices", "/switches", "/buttons", page, `${page}/settings`, `${page}/graph`, "/graph", "/api/graph", "/api/elements", "/tags", "/kindle", "/kindle/settings", "/kindle/designer", "/api/kindle/snapshot", "/api/state"]) {
+  for (const path of ["/", "/devices", "/switches", "/buttons", page, `${page}/settings`, "/graph", "/api/graph", "/api/graph/scene", "/api/elements", "/tags", "/kindle", "/kindle/settings", "/kindle/designer", "/api/kindle/snapshot", "/api/state"]) {
     const response = await promptly(app.request(path));
     expect(response.status, path).toBe(200);
     const text = await response.text();
@@ -74,9 +73,9 @@ test("page hydration ships rooms, tag assignments, and cached event history with
     subscribe(listener: import("../models/event-log").ServiceEventListener) { return this.log.subscribe(listener); }
   }
   const device = new CompositeDevice(), history = new History("history", "History");
-  history.log.record("availability_changed", "Seeded service reading", { subject: device.id });
+  history.log.record("availability_changed", "Seeded service reading", { subject: device.id, data: { current: "online" } });
   const logs = new DeviceEventLogs();
-  logs.record(device.id, "availability_changed", "Seeded local reading");
+  logs.record(device.id, "availability_changed", "Seeded local reading", { data: { current: "online" } });
   const hub = new StateHub(), tags = new TagStore();
   cleanup.push(() => hub.stop(), () => tags.close());
   const room = tags.create({ name: "room", value: "Office", color: "#123456", description: "" });
@@ -87,11 +86,11 @@ test("page hydration ships rooms, tag assignments, and cached event history with
   const page = site.view(device.id)!.page;
   const settings = await (await app.request(`${page}/settings`)).text();
   expect(settings).toContain('value="room:Office" selected');
-  expect(settings).toContain('>room = Office</a>');
+  expect(settings).toContain('data-room-current><a href="/rooms/office">Office</a>');
   const log = await (await app.request(`${page}/log`)).text();
   expect(log).toContain('class="event-body"><div>Seeded service reading');
   expect(log).toContain('class="event-body"><div>Seeded local reading');
-  history.log.record("availability_changed", "New service fault", { subject: device.id });
+  history.log.record("availability_changed", "New service fault", { subject: device.id, data: { previous: "online", current: "offline" } });
   const service = await (await app.request(site.pages().page("service", history.id)!)).text();
   expect(service).toContain('class="event-body"><div>New service fault');
   expect(history.reads).toBe(reads);

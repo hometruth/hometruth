@@ -1,3 +1,4 @@
+import { addressesFor } from "../element-api/addresses";
 import { StateHub } from "../state/hub";
 import { afterEach, describe, expect, test } from "bun:test";
 import { Device } from "../models/device";
@@ -34,8 +35,9 @@ function fixture() {
   const tags = new TagStore(); stores.push(tags);
   const kindle = new MemoryKindleConfigStore();
   const signals = new MemorySignalCodeStore();
-  const app = createApp(undefined, site, signals, undefined, undefined, undefined, undefined, undefined, undefined, kindle, undefined, tags);
-  return { app, site, tags, kindle, signals };
+  const hub = new StateHub();
+  const app = createApp(undefined, site, signals, undefined, undefined, undefined, undefined, undefined, undefined, kindle, undefined, tags, hub);
+  return { app, site, tags, kindle, signals, hub };
 }
 
 describe("universal tag routes", () => {
@@ -63,7 +65,7 @@ describe("universal tag routes", () => {
     const first = await (await app.request("/api/elements?kind=sensor")).json();
     expect(first.elements.map((element: { name: string }) => element.name)).toEqual(["Bridge temperature", "Bridge motion"]);
     const key = elementKey("sensor", "bridge", "bridge-temperature");
-    expect((await request(app, `/api/elements/${key}/tags`, "POST", { value: "temperature" })).status).toBe(200);
+    expect((await request(app, `/api/elements/${addressesFor(hub).address(key)}/tags`, "POST", { value: "temperature" })).status).toBe(200);
     expect(store.tagsFor(elementKey("sensor", "bridge", "bridge-motion"))).toEqual([]);
     expect(reads).toBe(1);
   });
@@ -81,33 +83,33 @@ describe("universal tag routes", () => {
   });
 
   test("attaches many UUID tags, renames without rewriting assignments, and removes only the chosen link", async () => {
-    const { app, tags } = fixture();
+    const { app, tags, hub } = fixture();
     const key = elementKey("sensor", "same-id", "temperature");
-    const first = await request(app, `/api/elements/${key}/tags`, "POST", { value: "climate" });
+    const first = await request(app, `/api/elements/${addressesFor(hub).address(key)}/tags`, "POST", { value: "climate" });
     expect(first.status).toBe(200);
     const tag = (await first.json()).tags[0];
     const secondKey = elementKey("group", "automatic:switches");
-    expect((await request(app, `/api/elements/${secondKey}/tags`, "POST", { tagId: tag.id })).status).toBe(200);
-    expect((await request(app, `/api/elements/${key}/tags`, "POST", { value: "kitchen" })).status).toBe(200);
+    expect((await request(app, `/api/elements/${addressesFor(hub).address(secondKey)}/tags`, "POST", { tagId: tag.id })).status).toBe(200);
+    expect((await request(app, `/api/elements/${addressesFor(hub).address(key)}/tags`, "POST", { value: "kitchen" })).status).toBe(200);
     const before = tags.assignments();
-    const changed = await request(app, `/api/tags/${tag.id}`, "PATCH", { value: "NewTag2", color: "#ee2277", description: "A renamed tag", revision: tag.revision });
+    const changed = await request(app, `/api/tags/${addressesFor(hub).mappings.tags[tag.id]}`, "PATCH", { value: "NewTag2", color: "#ee2277", description: "A renamed tag", revision: tag.revision });
     expect(changed.status).toBe(200);
     expect(tags.assignments()).toEqual(before);
     const payload = await changed.json();
     expect((await app.request(payload.page)).status).toBe(200);
     expect((await app.request("/tags/climate")).status).toBe(404);
-    const list = await (await app.request(`/api/elements/${key}/tags`)).json();
+    const list = await (await app.request(`/api/elements/${addressesFor(hub).address(key)}/tags`)).json();
     expect(list.tags).toHaveLength(2);
     expect(list.tags.find((item: { id: string }) => item.id === tag.id)).toMatchObject({ value: "NewTag2", color: "#ee2277", description: "A renamed tag" });
     const matching = await (await app.request(`/api/elements?tagId=${tag.id}`)).json();
     expect(matching.total).toBe(2);
-    expect((await request(app, `/api/elements/${key}/tags/${tag.id}`, "DELETE", {})).status).toBe(200);
+    expect((await request(app, `/api/elements/${addressesFor(hub).address(key)}/tags/${addressesFor(hub).mappings.tags[tag.id]}`, "DELETE", {})).status).toBe(200);
     expect(tags.tagsFor(secondKey)).toHaveLength(1);
     expect(tags.tagsFor(key)).toHaveLength(1);
   });
 
   test("rejects unknown elements, tagging a tag, invalid values, duplicate pairs, and stale revisions", async () => {
-    const { app, tags } = fixture();
+    const { app, tags, hub } = fixture();
     for (const value of ["", "a\tb", "a\nb"]) expect((await request(app, "/api/tags", "POST", { value, color: "#123456", description: "" })).status).toBe(400);
     const tag = tags.create({ value: "valid", color: "#123456", description: "" });
     const fakeTagKey = Buffer.from(JSON.stringify(["tag", tag.id])).toString("base64url");
@@ -115,16 +117,16 @@ describe("universal tag routes", () => {
     // Nothing was created by the rejected attaches: `valid` plus the rooms the
     // migration made from this fixture's own config.
     expect(tags.list().filter(entry => !entry.name)).toHaveLength(1);
-    expect((await request(app, `/api/tags/${tag.id}/tags`, "POST", { tagId: tag.id })).status).toBe(404);
+    expect((await request(app, `/api/tags/${addressesFor(hub).mappings.tags[tag.id]}/tags`, "POST", { tagId: tag.id })).status).toBe(404);
     expect((await request(app, "/api/tags", "POST", { value: "valid", color: "#123456", description: "" })).status).toBe(409);
-    expect((await request(app, `/api/tags/${tag.id}`, "PATCH", { value: "changed", color: "#123456", description: "", revision: 9 })).status).toBe(409);
+    expect((await request(app, `/api/tags/${addressesFor(hub).mappings.tags[tag.id]}`, "PATCH", { value: "changed", color: "#123456", description: "", revision: 9 })).status).toBe(409);
     const key = elementKey("device", "same-id");
-    expect((await request(app, `/api/elements/${key}/tags`, "POST", { tagId: tag.id, value: "both" })).status).toBe(400);
-    expect((await request(app, `/api/elements/${key}/tags`, "POST", { tagId: "00000000-0000-4000-8000-000000000000" })).status).toBe(404);
+    expect((await request(app, `/api/elements/${addressesFor(hub).address(key)}/tags`, "POST", { tagId: tag.id, value: "both" })).status).toBe(400);
+    expect((await request(app, `/api/elements/${addressesFor(hub).address(key)}/tags`, "POST", { tagId: "00000000-0000-4000-8000-000000000000" })).status).toBe(404);
   });
 
   test("enforces alphanumeric-and-dash tag NAMES on creation, rename, and inline tagging without changing saved data", async () => {
-    const { app, tags } = fixture();
+    const { app, tags, hub } = fixture();
     const key = elementKey("device", "same-id");
     const tag = tags.create({ value: "Kitchen2", color: "#123456", description: "" });
     tags.attach(key, { tagId: tag.id });
@@ -134,12 +136,12 @@ describe("universal tag routes", () => {
     for (const name of ["foo_bar", ".", "..", "~", "a/b", "a?b", "#", "%2e", "é", "🚪", "a b"]) {
       const fields = { name, value: "Kitchen3", color: "#123456", description: "" };
       expect((await request(app, "/api/tags", "POST", fields)).status).toBe(400);
-      expect((await request(app, `/api/tags/${tag.id}`, "PATCH", { ...fields, revision: tag.revision })).status).toBe(400);
-      expect((await request(app, `/api/elements/${key}/tags`, "POST", { name, value: "Kitchen3" })).status).toBe(400);
+      expect((await request(app, `/api/tags/${addressesFor(hub).mappings.tags[tag.id]}`, "PATCH", { ...fields, revision: tag.revision })).status).toBe(400);
+      expect((await request(app, `/api/elements/${addressesFor(hub).address(key)}/tags`, "POST", { name, value: "Kitchen3" })).status).toBe(400);
     }
     expect(tags.list().filter(entry => !entry.name)).toEqual([tag]);
     expect(tags.assignments()).toEqual(before);
-    const response = await (await app.request(`/api/tags/${tag.id}`)).json();
+    const response = await (await app.request(`/api/tags/${addressesFor(hub).mappings.tags[tag.id]}`)).json();
     expect(response.page).toBe("/tags/kitchen2");
     expect((await app.request(response.page)).status).toBe(200);
     expect((await app.request("/tags/~Kitchen2")).status).toBe(404);

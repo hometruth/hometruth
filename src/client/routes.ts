@@ -7,21 +7,34 @@ import { assetVersion, errorJson, isAllowedChangeOrigin, requestJson, type AppEn
 import { inventoryFor, visibleElement } from "./inventory";
 import { clientMethods } from "./methods";
 import { clientSource, compilePlayground } from "./source";
+import { cliDownload } from "../ht/download";
 
 export function clientRoutes(hub: StateHub, routes: () => readonly RegisteredRoute[], store?: GraphStore) {
   const app = new Hono<AppEnvironment>();
   app.get("/ht.ts", context => context.body(clientSource, 200, { "Content-Type": "text/plain; charset=utf-8" }));
   const javascript = new Bun.Transpiler({ loader: "ts", target: "browser" }).transformSync(clientSource);
   app.get("/ht.js", context => context.body(javascript, 200, { "Content-Type": "text/javascript; charset=utf-8" }));
+  app.get("/ht-cli.js", async context => {
+    try {
+      return context.body(await cliDownload(), 200, {
+        "Content-Type": "text/javascript; charset=utf-8",
+        "Content-Disposition": 'attachment; filename="ht-cli.js"',
+        "Cache-Control": "no-cache",
+        "X-Content-Type-Options": "nosniff",
+      });
+    } catch {
+      return context.text("CLI download is temporarily unavailable. Try again shortly.", 503);
+    }
+  });
 
   app.get("/api/inventory", context => {
     const inventory = inventoryFor(hub, store);
     const principal = context.get("principal");
     return context.json({ elements: inventory.entries.filter(entry => visibleElement(inventory.topology.node(entry.key)!, hub, principal)) });
   });
-  app.get("/api/inventory/:uuid", context => {
+  app.get("/api/inventory/:address", context => {
     const inventory = inventoryFor(hub, store);
-    const entry = inventory.byUuid.get(context.req.param("uuid"));
+    const entry = inventory.byAddress.get(context.req.param("address"));
     const node = entry && inventory.topology.node(entry.key);
     if (!entry || !node || !visibleElement(node, hub, context.get("principal"))) return errorJson(context, 404, "not_found", "Element not found");
     const api = buildElementApi({ site: hub.data.sources.site, hub, node, page: entry.page === "/" ? "" : entry.page, origin: new URL(context.req.url).origin, routes: routes(), version: assetVersion(), uuid: entry.uuid });

@@ -1,272 +1,115 @@
-import type { Device } from "../models/device";
-import { CapabilityError } from "../models/capability";
+import { validateWorkflow } from "./validation";
+import type { WorkflowAction, WorkflowDefinition, WorkflowGraph, WorkflowPredicate } from "./definition";
 
-export type WorkflowConcurrency = "parallel" | "replace" | "ignore";
-
-export interface WorkflowActionNode {
-  readonly id: string;
-  readonly type: "action";
-  readonly label?: string;
-  readonly device: string;
-  readonly control: string;
-  readonly value?: unknown;
-  readonly confirmed?: boolean;
-  readonly next?: string;
+export type { WorkflowDefinition, WorkflowNode } from "./definition";
+export { validateWorkflow, WorkflowValidationError } from "./validation";
+export interface WorkflowRuntime {
+  action(action: WorkflowAction, signal: AbortSignal): Promise<void>;
+  predicate(predicate: WorkflowPredicate, signal: AbortSignal): Promise<boolean | undefined>;
+  wait?(milliseconds: number, signal: AbortSignal): Promise<void>;
 }
-
-export interface WorkflowDelayNode {
-  readonly id: string;
-  readonly type: "delay";
-  readonly label?: string;
-  readonly durationMs: number;
-  readonly next?: string;
-}
-
-export type WorkflowComparison = "equals" | "notEquals" | "greaterThan" | "lessThan" | "contains" | "truthy" | "falsy";
-
-export interface WorkflowConditionNode {
-  readonly id: string;
-  readonly type: "condition";
-  readonly label?: string;
-  readonly device: string;
-  readonly path: string;
-  readonly operator: WorkflowComparison;
-  readonly value?: unknown;
-  readonly ifTrue: string;
-  readonly ifFalse: string;
-}
-
-export interface WorkflowEndNode {
-  readonly id: string;
-  readonly type: "end";
-  readonly label?: string;
-}
-
-export type WorkflowNode = WorkflowActionNode | WorkflowDelayNode | WorkflowConditionNode | WorkflowEndNode;
-
-export interface WorkflowDefinition {
-  readonly start: string;
-  readonly nodes: readonly WorkflowNode[];
-  readonly maxSteps?: number;
-  readonly concurrency?: WorkflowConcurrency;
-}
-
 export type WorkflowRunStatus = "idle" | "running" | "complete" | "failed" | "cancelled";
-
+export interface WorkflowTrace { node: string; phase: "entered" | "completed" | "failed"; detail?: string }
 export interface WorkflowRunView {
-  readonly id: string;
-  readonly status: WorkflowRunStatus;
-  readonly currentNodeId?: string;
-  readonly startedAt?: string;
-  readonly finishedAt?: string;
-  readonly error?: string;
-  readonly steps: number;
+  id: string; status: WorkflowRunStatus; activeNodeIds: string[]; steps: number; trace: WorkflowTrace[];
+  startedAt?: string; finishedAt?: string; error?: string;
+}
+interface Run { view: WorkflowRunView; controller: AbortController; active: Set<string>; task: Promise<void> }
+
+export function throwIfCancelled(signal: AbortSignal): void { if (signal.aborted) throw signal.reason ?? new Error("Workflow cancelled"); }
+export async function wait(milliseconds: number, signal: AbortSignal): Promise<void> {
+  throwIfCancelled(signal);
+  await new Promise<void>((resolve, reject) => {
+    const finish = () => { signal.removeEventListener("abort", cancel); resolve(); };
+    const timer = setTimeout(finish, milliseconds);
+    const cancel = () => { clearTimeout(timer); signal.removeEventListener("abort", cancel); reject(signal.reason ?? new Error("Workflow cancelled")); };
+    signal.addEventListener("abort", cancel, { once: true });
+  });
 }
 
-export class WorkflowValidationError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "WorkflowValidationError";
-  }
-}
-
-/** Semantic checks that JSON Schema cannot express: ids and every graph edge must resolve. */
-export function validateWorkflow(workflow: WorkflowDefinition): void {
-  const nodes = new Map<string, WorkflowNode>();
-  for (const node of workflow.nodes) {
-    if (nodes.has(node.id)) throw new WorkflowValidationError(`Workflow node "${node.id}" is defined more than once`);
-    nodes.set(node.id, node);
-  }
-  if (!nodes.has(workflow.start)) throw new WorkflowValidationError(`Workflow starts at missing node "${workflow.start}"`);
-  const requireNode = (from: string, target: string | undefined, edge: string) => {
-    if (target !== undefined && !nodes.has(target)) throw new WorkflowValidationError(`Workflow node "${from}" points to missing ${edge} node "${target}"`);
-  };
-  for (const node of workflow.nodes) {
-    if (node.type === "action" || node.type === "delay") requireNode(node.id, node.next, "next");
-    if (node.type === "condition") {
-      requireNode(node.id, node.ifTrue, "true branch");
-      requireNode(node.id, node.ifFalse, "false branch");
-      const hasValue = Object.hasOwn(node, "value");
-      if ((node.operator === "truthy" || node.operator === "falsy") && hasValue) {
-        throw new WorkflowValidationError(`Condition node "${node.id}" does not take a comparison value for ${node.operator}`);
-      }
-      if (node.operator !== "truthy" && node.operator !== "falsy" && !hasValue) {
-        throw new WorkflowValidationError(`Condition node "${node.id}" needs a comparison value for ${node.operator}`);
-      }
-    }
-  }
-  if ((workflow.maxSteps ?? 1000) < 1) throw new WorkflowValidationError("Workflow maxSteps must be at least 1");
-}
-
-interface WorkflowRun {
-  readonly id: string;
-  status: WorkflowRunStatus;
-  currentNodeId: string | undefined;
-  startedAt: string;
-  finishedAt: string | undefined;
-  error: string | undefined;
-  steps: number;
-  readonly controller: AbortController;
-}
-
-function valueAt(document: unknown, path: string): unknown {
-  let current = document;
-  for (const part of path.split(".")) {
-    if (!current || typeof current !== "object" || !Object.hasOwn(current, part)) return undefined;
-    current = (current as Record<string, unknown>)[part];
-  }
-  return current;
-}
-
-function sameValue(left: unknown, right: unknown): boolean {
-  if (Object.is(left, right)) return true;
-  if (left && right && typeof left === "object" && typeof right === "object") {
-    try { return JSON.stringify(left) === JSON.stringify(right); } catch { return false; }
-  }
-  return false;
-}
-
-function matches(left: unknown, operator: WorkflowComparison, right: unknown): boolean {
-  switch (operator) {
-    case "equals": return sameValue(left, right);
-    case "notEquals": return !sameValue(left, right);
-    case "greaterThan": return typeof left === "number" && typeof right === "number" && left > right;
-    case "lessThan": return typeof left === "number" && typeof right === "number" && left < right;
-    case "contains": return typeof left === "string" && typeof right === "string" ? left.includes(right)
-      : Array.isArray(left) ? left.some((item) => sameValue(item, right)) : false;
-    case "truthy": return Boolean(left);
-    case "falsy": return !left;
-  }
-}
-
-function now(): string { return new Date().toISOString(); }
-
-function abortError(): Error {
-  const error = new Error("Workflow was cancelled");
-  error.name = "WorkflowCancelledError";
-  return error;
-}
-
-function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === "WorkflowCancelledError";
-}
-
-/** Executes a validated workflow graph and retains a small in-memory run history for the UI. */
+/** The interpreter consumes only HomeTruth definitions and an injected runtime. */
 export class WorkflowRunner {
-  private readonly nodes: ReadonlyMap<string, WorkflowNode>;
-  private readonly runs: WorkflowRun[] = [];
-  private runNumber = 0;
-
-  constructor(
-    readonly workflow: WorkflowDefinition,
-    private readonly devices: ReadonlyMap<string, Device>,
-  ) {
-    validateWorkflow(workflow);
-    this.nodes = new Map(workflow.nodes.map((node) => [node.id, node]));
+  private readonly runs: Run[] = [];
+  readonly workflow: WorkflowDefinition;
+  constructor(workflow: WorkflowDefinition, private readonly runtime: WorkflowRuntime) {
+    validateWorkflow(workflow); this.workflow = structuredClone(workflow);
   }
-
   start(): WorkflowRunView {
-    const active = this.runs.filter((run) => run.status === "running");
-    const concurrency = this.workflow.concurrency ?? "replace";
-    if (concurrency === "ignore" && active[0]) return this.view(active[0]);
-    if (concurrency === "replace") for (const run of active) this.cancel(run.id);
-    const run: WorkflowRun = {
-      id: `${Date.now().toString(36)}-${(++this.runNumber).toString(36)}`,
-      status: "running",
-      currentNodeId: undefined,
-      startedAt: now(),
-      finishedAt: undefined,
-      error: undefined,
-      steps: 0,
-      controller: new AbortController(),
-    };
+    const previous = this.runs.filter(r => r.view.status === "running");
+    if (previous[0] && this.workflow.runPolicy === "ignoreWhileRunning") return this.view(previous[0]);
+    for (const run of previous) run.controller.abort(new Error("Replaced by another run"));
+    const run: Run = { view: { id: crypto.randomUUID(), status: "running", activeNodeIds: [], startedAt: new Date().toISOString(), steps: 0, trace: [] }, controller: new AbortController(), active: new Set(), task: Promise.resolve() };
     this.runs.unshift(run);
-    this.runs.splice(20);
-    void this.execute(run);
+    run.task = this.execute(run, previous.map(r => r.task));
+    while (this.runs.length > 20 && this.runs.at(-1)?.view.status !== "running") this.runs.pop();
     return this.view(run);
   }
-
   cancel(id?: string): boolean {
-    const run = id ? this.runs.find((candidate) => candidate.id === id) : this.runs.find((candidate) => candidate.status === "running");
-    if (!run || run.status !== "running") return false;
-    run.controller.abort();
-    return true;
+    const run = this.runs.find(r => r.view.status === "running" && (!id || r.view.id === id));
+    if (!run) return false; run.controller.abort(new Error("Workflow cancelled")); return true;
   }
-
-  status(): WorkflowRunView {
-    return this.runs[0] ? this.view(this.runs[0]) : { id: "", status: "idle", steps: 0 };
-  }
-
-  history(): readonly WorkflowRunView[] { return this.runs.map((run) => this.view(run)); }
-
-  private view(run: WorkflowRun): WorkflowRunView {
-    return {
-      id: run.id,
-      status: run.status,
-      ...(run.currentNodeId ? { currentNodeId: run.currentNodeId } : {}),
-      ...(run.startedAt ? { startedAt: run.startedAt } : {}),
-      ...(run.finishedAt ? { finishedAt: run.finishedAt } : {}),
-      ...(run.error ? { error: run.error } : {}),
-      steps: run.steps,
-    };
-  }
-
-  private async execute(run: WorkflowRun): Promise<void> {
+  async close(): Promise<void> { for (const run of this.runs) this.cancel(run.view.id); await Promise.all(this.runs.map(r => r.task)); }
+  async settled(): Promise<void> { await Promise.all(this.runs.map(r => r.task)); }
+  status(): WorkflowRunView { return this.runs[0] ? this.view(this.runs[0]) : { id: "", status: "idle", activeNodeIds: [], steps: 0, trace: [] }; }
+  history(): WorkflowRunView[] { return this.runs.map(r => this.view(r)); }
+  private view(run: Run): WorkflowRunView { return structuredClone({ ...run.view, activeNodeIds: [...run.active] }); }
+  private trace(run: Run, event: WorkflowTrace) { run.view.trace.push(event); if (run.view.trace.length > 500) run.view.trace.shift(); }
+  private async execute(run: Run, previous: Promise<void>[]): Promise<void> {
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    let expired = false;
     try {
-      let current = this.workflow.start;
-      const limit = this.workflow.maxSteps ?? 1000;
-      while (current) {
-        this.checkCancelled(run);
-        if (run.steps >= limit) throw new WorkflowValidationError(`Workflow exceeded its ${limit}-step limit`);
-        const node = this.nodes.get(current);
-        if (!node) throw new WorkflowValidationError(`Workflow reached missing node "${current}"`);
-        run.currentNodeId = node.id;
-        run.steps += 1;
-        if (node.type === "action") {
-          const device = this.devices.get(node.device);
-          if (!device) throw new CapabilityError(`Workflow target "${node.device}" is unavailable`, "not_supported");
-          const options = node.confirmed === true ? { confirmed: true } : {};
-          if (Object.hasOwn(node, "value")) await device.invokeControl(node.control, node.value, options);
-          else await device.invokeControl(node.control, undefined, options);
-          current = node.next ?? "";
-        } else if (node.type === "delay") {
-          await this.delay(node.durationMs, run.controller.signal);
-          current = node.next ?? "";
-        } else if (node.type === "condition") {
-          const device = this.devices.get(node.device);
-          if (!device) throw new CapabilityError(`Workflow target "${node.device}" is unavailable`, "not_supported");
-          const document = await device.describe();
-          current = matches(valueAt(document, node.path), node.operator, node.value) ? node.ifTrue : node.ifFalse;
-        } else {
-          current = "";
-        }
-      }
-      run.currentNodeId = undefined;
-      run.status = "complete";
-      run.finishedAt = now();
+      await Promise.all(previous); throwIfCancelled(run.controller.signal);
+      deadline = setTimeout(() => { expired = true; run.controller.abort(new Error("Workflow time limit exceeded")); }, this.workflow.limits.maxDurationMs);
+      await this.graph(this.workflow.graph, "root", run, run.controller.signal);
+      throwIfCancelled(run.controller.signal); run.view.status = "complete";
     } catch (error) {
-      run.currentNodeId = undefined;
-      run.finishedAt = now();
-      if (isAbortError(error)) {
-        run.status = "cancelled";
-        return;
-      }
-      run.status = "failed";
-      run.error = error instanceof Error ? error.message : String(error);
+      run.view.status = run.controller.signal.aborted && !expired ? "cancelled" : "failed";
+      run.view.error = error instanceof Error ? error.message : String(error);
+    } finally { clearTimeout(deadline); run.active.clear(); run.view.finishedAt = new Date().toISOString(); }
+  }
+  private async graph(graph: WorkflowGraph, scope: string, run: Run, signal: AbortSignal): Promise<void> {
+    const nodes = new Map(graph.nodes.map(n => [n.id, n])); let current = graph.entry;
+    while (current) {
+      throwIfCancelled(signal);
+      if (++run.view.steps > this.workflow.limits.maxSteps) throw new Error("Workflow step limit exceeded");
+      const node = nodes.get(current)!; const key = `${scope}/${node.id}`;
+      run.active.add(key); this.trace(run, { node: key, phase: "entered" });
+      try {
+        if (node.type === "end") { if (node.outcome === "failure") throw new Error(`Workflow ended with failure at ${node.label || key}`); current = ""; }
+        else if (node.type === "delay") { await (this.runtime.wait ?? wait)(node.durationMs, signal); current = node.next; }
+        else if (node.type === "condition" || node.type === "waitFor") {
+          let result = await this.runtime.predicate(node.predicate, signal);
+          if (node.type === "condition") current = result === undefined ? node.onUnknown : result ? node.ifTrue : node.ifFalse;
+          else {
+            let remaining = node.timeoutMs;
+            while (result === false && remaining > 0) {
+              const interval = Math.min(250, remaining); await (this.runtime.wait ?? wait)(interval, signal); remaining -= interval;
+              result = await this.runtime.predicate(node.predicate, signal);
+            }
+            current = result === undefined ? node.onUnknown : result ? node.onMatch : node.onTimeout;
+          }
+        } else {
+          try {
+            if (node.type === "action") await this.runtime.action(node.action, signal);
+            else if (node.type === "repeat") for (let i = 0; i < node.count; i++) await this.graph(node.body, `${key}/body`, run, signal);
+            else {
+              const siblings = new AbortController(); const childSignal = AbortSignal.any([signal, siblings.signal]);
+              const results = await Promise.allSettled(node.branches.map(async (branch, i) => {
+                try { await this.graph(branch, `${key}/branch-${i + 1}`, run, childSignal); }
+                catch (error) { siblings.abort(error); throw error; }
+              }));
+              const failure = results.find(r => r.status === "rejected"); if (failure?.status === "rejected") throw failure.reason;
+            }
+            throwIfCancelled(signal); current = node.next;
+          } catch (error) {
+            throwIfCancelled(signal);
+            if (run.view.steps > this.workflow.limits.maxSteps) throw error;
+            this.trace(run, { node: key, phase: "failed", detail: error instanceof Error ? error.message : String(error) });
+            current = node.onError;
+          }
+        }
+        this.trace(run, { node: key, phase: "completed" });
+      } finally { run.active.delete(key); }
     }
-  }
-
-  private checkCancelled(run: WorkflowRun): void {
-    if (run.controller.signal.aborted) throw abortError();
-  }
-
-  private async delay(durationMs: number, signal: AbortSignal): Promise<void> {
-    if (durationMs === 0) return;
-    await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(resolve, durationMs);
-      const cancel = () => { clearTimeout(timer); reject(abortError()); };
-      if (signal.aborted) cancel();
-      else signal.addEventListener("abort", cancel, { once: true });
-    });
   }
 }

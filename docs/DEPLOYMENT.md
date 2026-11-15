@@ -1,4 +1,4 @@
-# A dedicated macOS production host
+# A dedicated production host (macOS or Linux)
 
 Develop on one installation and run production from an explicit, verified source
 release on another host. Both can control real devices; their files, databases,
@@ -52,7 +52,7 @@ data. Selection does not start a service by itself.
 
 ## Service supervision
 
-Use a system LaunchDaemon with `UserName` set to the installation owner,
+On macOS, use a system LaunchDaemon with `UserName` set to the installation owner,
 `KeepAlive` and `RunAtLoad`. Its command is `/usr/bin/caffeinate -s`, followed by
 `/usr/bin/python3 ops/deployment.py run --root ... --bun ...`. Use absolute paths,
 an explicit PATH containing Node, ffmpeg and OpenSSL, and an owner-only working
@@ -73,11 +73,39 @@ Do not promise zero downtime or 100% availability from a single laptop. Reboots,
 network outages and hardware failures need operational recovery. Keep the lid
 open, AC sleep disabled, and provide backup power for network equipment.
 
+## Linux (systemd) hosts
+
+The same release layout and `ops/deployment.py run` launcher work on Linux.
+Use a systemd unit with `User=` set to the installation owner, `Restart=always`,
+`KillMode=control-group`, `UMask=0077`, and an explicit `PATH` containing the
+pinned Bun (with a `bunx` link beside it), Node, ffmpeg and OpenSSL. Run Caddy as
+a second unit for the same user with `AmbientCapabilities=CAP_NET_BIND_SERVICE`
+and `XDG_CONFIG_HOME`/`XDG_DATA_HOME` in the installation, binding only the web
+address (`default_bind`). Publish the name with Avahi instead of `dns-sd`:
+`avahi-publish -a -R <name> <address>` and `avahi-publish -s -H <name> HomeTruth
+_https._tcp 443`. Keep the web alias in the network configuration (for example
+a netplan file adding the address to the interface).
+
+Linux needs `bluez`, `python3-dbus` and `python3-gi` for [Govee
+Bluetooth](GOVEE.md); in a VM, pass the host's USB Bluetooth controller through.
+Sonos `say()` uses Piper there: set `HOMETRUTH_PIPER` to its binary and
+`HOMETRUTH_PIPER_VOICE` to a `.onnx` voice in `site.json`. Absolute paths in
+`.hometruth/secrets.yml` and SSH configs must be rewritten when the home
+directory changes.
+
 ## HTTPS and local names
 
 Use a reverse proxy such as Caddy with a local CA for a `.local` hostname. Each
-browser/device must trust that CA. Publish the name using Bonjour (mDNS), and
-provide a router DNS record where necessary for other subnets. Reserve the host
+browser/device must trust that CA. Copy only the public root certificate over
+an authenticated channel and verify its fingerprint before trusting it; keep the
+CA private key on the server. Browser passkeys require trusted HTTPS.
+
+Keep `.hometruth/tokens.sqlite` in the persistent installation directory. It
+holds hashed browser sessions, passkey public keys and API access grants, so
+replacing source releases must never replace this database. Browser sign-in and
+recovery are described in [API tokens](API_TOKENS.md).
+
+Publish the name using Bonjour (mDNS), and provide a router DNS record where necessary for other subnets. Reserve the host
 address. Never expose the home control interface with router port forwarding.
 
 Production `site.json` should contain:

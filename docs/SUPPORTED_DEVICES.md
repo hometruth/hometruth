@@ -19,6 +19,7 @@ show configuration shapes. They contain no installation inventory.
 | Local RTSP camera or stream | `rtsp-camera` | [RTSP setup](RTSP.md); browser video and JPEG snapshots through ffmpeg, with optional RTSP credentials. |
 | Tactacam REVEAL | `tactacam-reveal` | [Photo archive](REVEAL.md); cloud account and polling, not a LAN live-video adapter. |
 | Shelly Plus 1 | `shelly-plus-1` | Local relay RPC; see inventory examples. Other models require compatibility checks. |
+| TP-Link Kasa EP10, EP40, KP115, HS300 | `tplink-kasa-plug`, `tplink-kasa-energy-meter` | Legacy local protocol (TCP 9999, no account); one switch per outlet, and power/voltage/current/energy readings for the KP115 and each HS300 outlet. Firmware that requires KLAP authentication is not supported. |
 | Lutron Caséta | `lutron-caseta-switch`, `lutron-caseta-dimmer` | Bridge/device addressing as declared in the model schemas and inventory examples. |
 | Elgato Key Light Air | `elgato-key-light-air` | Local light control; see inventory examples. |
 | Philips Hue lights and accessories | `hue-light`, `hue-entertainment-light`, `hue-motion-sensor`, `hue-switch` | [Hue setup](HUE.md); bridge registration, resource IDs and optional Entertainment configuration. |
@@ -29,8 +30,13 @@ show configuration shapes. They contain no installation inventory.
 | Samsung The Frame | `samsung-frame` | [TV guide](SAMSUNG.md); local remote and art-mode channels require TV authorization. |
 | Aqara | `aqara-hub-m2`, `aqara-presence-sensor-fp2`, `aqara-door-window-sensor` | [Aqara setup](AQARA.md); HomeKit or supported Matter pairing paths, with commissioning limits. |
 | Ring bridge and smart lights | `ring-bridge`, `ring-smart-light` | [Ring setup](RING.md); requires the Ring cloud. |
+| Rachio smart sprinkler controller | `rachio-controller`, `rachio-zone`, `rachio-rain-delay` | [Rachio setup](RACHIO.md); requires the Rachio cloud and an API key; polled within Rachio's daily API limit. |
 | AirGradient ONE | `airgradient-one` | Local sensor readings; see inventory examples. |
-| Govee H5075 | `govee-h5075` | [Bluetooth sensor guide](GOVEE.md); the current receiver requires macOS. |
+| Enphase IQ Gateway (Envoy) | `enphase-envoy` | [Enphase guide](ENPHASE.md); local HTTPS, read-only; firmware 7+ needs an owner token from the Enphase cloud. |
+| Whisker Litter-Robot 4 | `litter-robot-4`, `litter-robot-4-switch`, `litter-robot-4-button` | [Litter-Robot guide](LITTER_ROBOT.md); requires the Whisker cloud; readings, night-light and panel-lockout switches, clean-cycle and reset buttons. |
+| Roborock robot vacuums (local protocol 1.0) | `roborock-vacuum`, `roborock-vacuum-action` | [Roborock guide](ROBOROCK.md); state, error, battery, area, time and fan power, plus start/pause/stop/dock/locate buttons. Needs the device's local key; "L01" firmware is not supported. |
+| Govee H5075 | `govee-h5075` | [Bluetooth sensor guide](GOVEE.md); macOS or Linux (BlueZ) receiver. |
+| Router-controlled internet access | `internet-access-switch` | [Network tools](NETWORK_TOOLS.md); one switch for configured MAC identities, using a UniFi zone-based firewall with IPv4/IPv6 coverage. |
 
 Logical models combine configured devices: `light-group`, `synthetic-switch`,
 `action-button`, `workflow-button` and `optimistic-switch`. See

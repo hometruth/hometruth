@@ -117,14 +117,15 @@ test("a presented token wins over the network it arrives from", async () => {
 
 test("a dead cookie does not lock anyone out of their own living room", async () => {
   const token = tokens.issue({ name: "old", permissions: ["read"], subject: { all: true } }).token;
+  const session = tokens.browsers.issue(tokens.list()[0]!.kid, "Test browser");
   tokens.revoke(tokens.list()[0]!.kid);
-  const lan = { ...from("10.77.0.40"), cookie: `ht_session=${token}` };
+  const lan = { ...from("10.77.0.40"), cookie: `__Host-ht_session=${session.value}` };
   const response = await app.request("/api/devices", { headers: lan });
   expect(response.status).toBe(200);
   // …and the dead cookie is cleared on the way past, rather than failing forever.
   expect(response.headers.get("set-cookie") ?? "").toContain("ht_session=");
   // From outside, the same dead cookie is simply refused.
-  expect((await app.request("/api/devices", { headers: { ...from("8.8.8.8"), cookie: `ht_session=${token}` } })).status).toBe(401);
+  expect((await app.request("/api/devices", { headers: { ...from("8.8.8.8"), cookie: `__Host-ht_session=${session.value}` } })).status).toBe(401);
 });
 
 test("whoami says how someone got in", async () => {

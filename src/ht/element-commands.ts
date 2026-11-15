@@ -1,12 +1,11 @@
 import { UsageError, type Client } from "./client";
 import { commandUsage, shellWord, type ElementCommand } from "./commands";
 import type { Element } from "./elements";
-import { elementKey } from "../tags/identity";
 
 /** The install publishes the command names and argument schemas for this element. */
 export async function discoverCommands(api: Client, element: Element): Promise<ElementCommand[]> {
-  const page = element.page ?? `/elements/${elementKey(element.kind, element.id)}`;
-  if (!page.startsWith("/") || page.startsWith("//")) throw new UsageError("The element has no local command guide");
+  const page = element.commandPage;
+  if (!page || !page.startsWith("/") || page.startsWith("//")) throw new UsageError("The element has no local command guide");
   const document = await api.get(`${page === "/" ? "" : page}/openapi.json`) as { paths: Record<string, Record<string, { "x-hometruth-cli"?: ElementCommand }>> };
   const commands = Object.values(document.paths).flatMap(item => Object.values(item).flatMap(operation => operation["x-hometruth-cli"] ? [operation["x-hometruth-cli"]] : []));
   return [...new Map(commands.map(command => [command.name, command])).values()];

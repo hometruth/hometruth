@@ -1,3 +1,4 @@
+import { groupPath } from "./test-addresses";
 import { describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -121,11 +122,11 @@ describe("automatic groups", () => {
     const groups = (await (await app.request("/api/device-groups")).json()).groups;
     expect(groups.find((group: { id: string }) => group.id === "automatic:lights")).toMatchObject({ name: "All Lights", builtIn: true, members: ["left", "right"], page: "/groups/all-lights" });
     expect(site.deviceGroups.find(group => group.id === "automatic:switches")?.members).toEqual(["left", "right", "relay"]);
-    expect((await post(app, "/api/device-groups/automatic:lights/controls/power.turnOn", {})).status).toBe(200);
+    expect((await post(app, `${await groupPath(app, "automatic:lights")}/controls/power.turnOn`, {})).status).toBe(200);
     expect([left.on, right.on, relay.on]).toEqual([true, true, false]);
-    expect((await post(app, "/api/device-groups/automatic:switches/controls/power.toggle", {})).status).toBe(200);
+    expect((await post(app, `${await groupPath(app, "automatic:switches")}/controls/power.toggle`, {})).status).toBe(200);
     expect(relay.on).toBe(true);
-    expect((await post(app, "/api/device-groups/automatic:lights/settings", { criteria: { room: "Kitchen" } })).status).toBe(409);
+    expect((await post(app, `${await groupPath(app, "automatic:lights")}/settings`, { criteria: { room: "Kitchen" } })).status).toBe(409);
     const html = await (await app.request("/groups/all-lights")).text();
     expect(html).toContain("Built-in group.");
     expect(html).not.toContain('data-edit-members="true"');
@@ -134,39 +135,37 @@ describe("automatic groups", () => {
   test("persists criteria and recomputes room AND schema membership before each control", async () => {
     const relay = new Relay("relay");
     const { app, site, saved, left, right } = fixture([new TestDevice("relay", relay)]);
-    site.get("left")!.room = "Kitchen";
-    site.get("relay")!.room = "Kitchen";
-    site.invalidateConfiguration();
+    await post(app, "/api/devices/left/room", { room: "Kitchen" });
+    await post(app, "/api/devices/relay/room", { room: "Kitchen" });
     const group = { id: "kitchen", name: "All Lights in Kitchen", criteria: { room: "Kitchen", schemaId: lightSchema.$id } };
     expect((await post(app, "/api/device-groups", group)).status).toBe(201);
     expect(saved).toEqual([group]);
-    expect((await (await app.request("/api/device-groups/kitchen")).json()).members.map((member: { id: string }) => member.id)).toEqual(["left"]);
-    await post(app, "/api/device-groups/kitchen/controls/power.turnOn", {});
+    expect((await (await app.request(`${await groupPath(app, "kitchen")}`)).json()).members.map((member: { id: string }) => member.id)).toEqual(["left"]);
+    await post(app, `${await groupPath(app, "kitchen")}/controls/power.turnOn`, {});
     expect([left.on, right.on, relay.on]).toEqual([true, false, false]);
-    site.get("left")!.room = "Office";
-    site.get("right")!.room = "Kitchen";
-    site.invalidateConfiguration();
-    await post(app, "/api/device-groups/kitchen/controls/power.turnOn", {});
+    await post(app, "/api/devices/left/room", { room: "Office" });
+    await post(app, "/api/devices/right/room", { room: "Kitchen" });
+    await post(app, `${await groupPath(app, "kitchen")}/controls/power.turnOn`, {});
     expect(right.on).toBe(true);
     expect(relay.on).toBe(false);
-    expect((await post(app, "/api/device-groups/kitchen/settings", { criteria: { room: "Kitchen", schemaId: binarySwitchSchema.$id } })).status).toBe(200);
-    await post(app, "/api/device-groups/kitchen/controls/power.turnOn", {});
+    expect((await post(app, `${await groupPath(app, "kitchen")}/settings`, { criteria: { room: "Kitchen", schemaId: binarySwitchSchema.$id } })).status).toBe(200);
+    await post(app, `${await groupPath(app, "kitchen")}/controls/power.turnOn`, {});
     expect(relay.on).toBe(true);
-    expect((await post(app, "/api/device-groups/kitchen/settings", { members: ["left", "right"] })).status).toBe(400);
-    expect((await post(app, "/api/device-groups/desk/settings", { criteria: { room: "Kitchen" } })).status).toBe(400);
+    expect((await post(app, `${await groupPath(app, "kitchen")}/settings`, { members: ["left", "right"] })).status).toBe(400);
+    expect((await post(app, `${await groupPath(app, "desk")}/settings`, { criteria: { room: "Kitchen" } })).status).toBe(400);
   });
 
   test("supports empty, single-member, and more than 100 matches without truncation", async () => {
     const { app, site } = fixture();
     const group = { id: "future", name: "Future room", criteria: { room: "Empty room" } };
     expect((await post(app, "/api/device-groups", group)).status).toBe(201);
-    expect(await (await app.request("/api/device-groups/future")).json()).toMatchObject({ members: [], properties: [], actions: [], availability: "unknown", canSwitch: false });
-    expect((await post(app, "/api/device-groups/future/controls/power.turnOn", {})).status).toBe(409);
-    site.get("left")!.room = "Empty room";
-    site.invalidateConfiguration();
-    expect((await (await app.request("/api/device-groups/future")).json()).members).toHaveLength(1);
+    expect(await (await app.request(`${await groupPath(app, "future")}`)).json()).toMatchObject({ members: [], properties: [], actions: [], availability: "unknown", canSwitch: false });
+    expect((await post(app, `${await groupPath(app, "future")}/controls/power.turnOn`, {})).status).toBe(409);
+    await post(app, "/api/devices/left/room", { room: "Empty room" });
+    expect((await (await app.request(`${await groupPath(app, "future")}`)).json()).members).toHaveLength(1);
     const many = new Site(Array.from({ length: 101 }, (_, i) => new TestDevice(`lamp-${i}`, new Lamp(`lamp-${i}`))));
-    expect((await (await createApp(undefined, many).request("/api/device-groups/automatic:lights")).json()).members).toHaveLength(101);
+    const manyApp = createApp(undefined, many);
+    expect((await (await manyApp.request(await groupPath(manyApp, "automatic:lights"))).json()).members).toHaveLength(101);
   });
 
   test("validates criteria, forbids ambiguous membership, and reserves built-in identities", async () => {
@@ -188,8 +187,8 @@ describe("automatic groups", () => {
       { from: "composite", to: "right", relation: "members" },
     ]);
     expect(site.deviceGroups.find(group => group.id === "automatic:lights")?.members).toEqual(["left", "right"]);
-    expect((await post(app, "/api/device-groups/automatic:lights/controls/power.toggle", {})).status).toBe(200);
-    expect((await (await app.request("/api/device-groups/automatic:switches")).json()).members).toMatchObject([
+    expect((await post(app, `${await groupPath(app, "automatic:lights")}/controls/power.toggle`, {})).status).toBe(200);
+    expect((await (await app.request(`${await groupPath(app, "automatic:switches")}`)).json()).members).toMatchObject([
       { id: "left", availability: "online" }, { id: "right", availability: "online" }, { id: "relay", availability: "offline" },
     ]);
     expect((await post(app, "/api/device-groups/preview", { criteria: { schemaId: cameraSchema.$id } })).status).toBe(200);
@@ -344,14 +343,14 @@ describe("device group routes and persistence", () => {
   test("edits group membership in place and sends subsequent controls only to saved members", async () => {
     const third = new Lamp("third");
     const { app, site, left, right } = fixture([new TestDevice("third", third)]);
-    await post(app, "/api/device-groups/desk/settings", { room: "Office", asSwitch: true });
-    expect((await post(app, "/api/device-groups/desk/settings", { members: ["left", "right", "third"] })).status).toBe(200);
+    await post(app, `${await groupPath(app, "desk")}/settings`, { room: "Office", asSwitch: true });
+    expect((await post(app, `${await groupPath(app, "desk")}/settings`, { members: ["left", "right", "third"] })).status).toBe(200);
     expect(site.deviceGroups[0]?.members).toEqual(["left", "right", "third"]);
-    expect((await post(app, "/api/device-groups/desk/settings", { members: ["left", "third"] })).status).toBe(200);
+    expect((await post(app, `${await groupPath(app, "desk")}/settings`, { members: ["left", "third"] })).status).toBe(200);
     expect(site.deviceGroups[0]).toEqual({ ...definition, members: ["left", "third"], room: "Office", asSwitch: true });
-    const snapshot = await (await app.request("/api/device-groups/desk")).json();
+    const snapshot = await (await app.request(`${await groupPath(app, "desk")}`)).json();
     expect(snapshot.members.map((member: { id: string }) => member.id)).toEqual(["left", "third"]);
-    await post(app, "/api/device-groups/desk/switch/turn-on", {});
+    await post(app, `${await groupPath(app, "desk")}/switch/turn-on`, {});
     expect([left.on, right.on, third.on]).toEqual([true, false, true]);
     expect(await (await app.request("/groups/desk-lights")).text()).toContain('data-edit-members="true"');
   });
@@ -366,19 +365,19 @@ describe("device group routes and persistence", () => {
     Object.assign(composite.config as object, { members: ["left", "right"] });
     const { app, site } = fixture([new TestDevice("button", new NoPower("button")), composite]);
     for (const members of [[], ["left"], ["left", "left"], ["left", "missing"], ["left", "composite"], Array.from({ length: 101 }, (_, index) => `device-${index}`)]) {
-      expect((await post(app, "/api/device-groups/desk/settings", { members })).status).toBe(400);
+      expect((await post(app, `${await groupPath(app, "desk")}/settings`, { members })).status).toBe(400);
       expect(site.deviceGroups[0]).toEqual(definition);
     }
-    expect((await post(createApp(undefined, site), "/api/device-groups/desk/settings", { members: ["left", "button"] })).status).toBe(409);
-    await post(app, "/api/device-groups/desk/settings", { asSwitch: true });
+    expect((await post(createApp(undefined, site), `${await groupPath(app, "desk")}/settings`, { members: ["left", "button"] })).status).toBe(409);
+    await post(app, `${await groupPath(app, "desk")}/settings`, { asSwitch: true });
     const preview = await (await post(app, "/api/device-groups/preview", { members: ["left", "button"] })).json();
     expect(preview.canSwitch).toBe(false);
     expect(site.deviceGroups[0]?.asSwitch).toBe(true);
-    expect((await post(app, "/api/device-groups/desk/settings", { members: ["left", "button"], asSwitch: true })).status).toBe(400);
-    const response = await post(app, "/api/device-groups/desk/settings", { members: ["left", "button"] });
+    expect((await post(app, `${await groupPath(app, "desk")}/settings`, { members: ["left", "button"], asSwitch: true })).status).toBe(400);
+    const response = await post(app, `${await groupPath(app, "desk")}/settings`, { members: ["left", "button"] });
     expect(await response.json()).toEqual({ id: "desk", members: ["left", "button"], asSwitch: false });
     expect(site.deviceGroups[0]).toEqual({ ...definition, members: ["left", "button"], asSwitch: false });
-    expect((await app.request("/api/device-groups/desk/switch")).status).toBe(404);
+    expect((await app.request(`${await groupPath(app, "desk")}/switch`)).status).toBe(404);
   });
 
   test("provides a Groups navigation destination and highlights it on group pages", async () => {
@@ -394,71 +393,71 @@ describe("device group routes and persistence", () => {
   });
   test("assigns group rooms and opts compatible groups into working switches", async () => {
     const { app, left, right } = fixture();
-    expect((await (await app.request("/api/device-groups/desk")).json()).canSwitch).toBe(true);
-    expect((await app.request("/api/device-groups/desk/switch")).status).toBe(404);
+    expect((await (await app.request(`${await groupPath(app, "desk")}`)).json()).canSwitch).toBe(true);
+    expect((await app.request(`${await groupPath(app, "desk")}/switch`)).status).toBe(404);
     expect(await (await app.request("/switches")).text()).not.toContain('href="/groups/desk-lights"');
-    expect((await post(app, "/api/device-groups/desk/settings", { room: "Office", asSwitch: true })).status).toBe(200);
-    expect(await (await app.request("/api/device-groups/desk")).json()).toMatchObject({ room: "Office", asSwitch: true });
+    expect((await post(app, `${await groupPath(app, "desk")}/settings`, { room: "Office", asSwitch: true })).status).toBe(200);
+    expect(await (await app.request(`${await groupPath(app, "desk")}`)).json()).toMatchObject({ room: "Office", asSwitch: true });
     const home = await (await app.request("/devices")).text();
     expect(home).toContain('<section><h2>Office</h2><ul class="rows"><li><a class="row" href="/groups/desk-lights"');
     expect(await (await app.request("/switches")).text()).toContain('<ht-switch-row node="group/desk">');
     left.on = true;
-    expect(await (await app.request("/api/device-groups/desk/switch")).json()).toMatchObject({ mixed: true, state: { availability: "online" } });
+    expect(await (await app.request(`${await groupPath(app, "desk")}/switch`)).json()).toMatchObject({ mixed: true, state: { availability: "online" } });
     for (const [action, state] of [["toggle", "on"], ["toggle", "off"], ["turn-on", "on"], ["turn-off", "off"]]) {
-      const response = await post(app, `/api/device-groups/desk/switch/${action}`, {});
+      const response = await post(app, `${await groupPath(app, "desk")}/switch/${action}`, {});
       expect(response.status).toBe(200);
       expect(await response.json()).toMatchObject({ mixed: false, state: { value: state } });
       expect([left.on, right.on]).toEqual([state === "on", state === "on"]);
     }
-    expect((await post(app, "/api/device-groups/desk/settings", { room: null, asSwitch: false })).status).toBe(200);
-    expect((await (await app.request("/api/device-groups/desk")).json()).room).toBeUndefined();
-    expect((await app.request("/api/device-groups/desk/switch")).status).toBe(404);
+    expect((await post(app, `${await groupPath(app, "desk")}/settings`, { room: null, asSwitch: false })).status).toBe(200);
+    expect((await (await app.request(`${await groupPath(app, "desk")}`)).json()).room).toBeUndefined();
+    expect((await app.request(`${await groupPath(app, "desk")}/switch`)).status).toBe(404);
   });
 
   test("validates settings and rejects incompatible switches without issuing commands", async () => {
     const { app, site, left } = fixture();
     for (const settings of [{}, { room: " " }, { room: 42 }, { room: "x".repeat(101) }, { asSwitch: "true" }, { asSwitch: true, extra: true }]) {
-      expect((await post(app, "/api/device-groups/desk/settings", settings)).status).toBe(400);
+      expect((await post(app, `${await groupPath(app, "desk")}/settings`, settings)).status).toBe(400);
     }
     expect((await post(app, "/api/device-groups/missing/settings", { asSwitch: true })).status).toBe(404);
-    expect((await post(createApp(undefined, site), "/api/device-groups/desk/settings", { asSwitch: true })).status).toBe(409);
+    expect((await post(createApp(undefined, site), `${await groupPath(app, "desk")}/settings`, { asSwitch: true })).status).toBe(409);
     const originalDescribe = left.describe.bind(left);
     left.describe = async () => { const doc = await originalDescribe(); delete (doc.actions as Record<string, unknown>).toggle; return doc; };
-    expect((await (await app.request("/api/device-groups/desk")).json()).canSwitch).toBe(false);
-    expect((await post(app, "/api/device-groups/desk/settings", { asSwitch: true })).status).toBe(400);
+    expect((await (await app.request(`${await groupPath(app, "desk")}`)).json()).canSwitch).toBe(false);
+    expect((await post(app, `${await groupPath(app, "desk")}/settings`, { asSwitch: true })).status).toBe(400);
     expect((await post(app, "/api/device-groups", { ...definition, id: "incompatible", asSwitch: true })).status).toBe(400);
     expect(left.on).toBe(false);
-    expect((await post(app, "/api/device-groups/desk/settings", { room: "Office" })).status).toBe(200);
+    expect((await post(app, `${await groupPath(app, "desk")}/settings`, { room: "Office" })).status).toBe(200);
   });
 
   test("reading the switch endpoint publishes the group switch document for the pages watching it", async () => {
     const hub = new StateHub();
     const { app } = fixture([], hub);
-    expect((await post(app, "/api/device-groups/desk/settings", { asSwitch: true })).status).toBe(200);
+    expect((await post(app, `${await groupPath(app, "desk")}/settings`, { asSwitch: true })).status).toBe(200);
     expect(hub.graph.read(groupNode("desk"))).toBeUndefined();
-    expect((await app.request("/api/device-groups/desk/switch")).status).toBe(200);
+    expect((await app.request(`${await groupPath(app, "desk")}/switch`)).status).toBe(200);
     expect(hub.graph.read(groupNode("desk"))).toMatchObject({ version: 1, value: { id: "desk", capabilities: { binarySwitch: { id: "desk" } }, group: { canSwitch: true } } });
   });
 
   test("names the members that no longer share switch controls on the switch endpoint and page", async () => {
     const { app, left, right } = fixture();
-    expect((await post(app, "/api/device-groups/desk/settings", { asSwitch: true })).status).toBe(200);
+    expect((await post(app, `${await groupPath(app, "desk")}/settings`, { asSwitch: true })).status).toBe(200);
     const page = await (await app.request("/switches/desk-lights")).text();
     expect(page).toContain('data-group-member="left"'); expect(page).toContain('data-group-member="right"');
     expect(page).toContain('<ht-switch node="group/desk">');
     expect(page).toContain('"switch.notSharedBy"');
     const originalDescribe = right.describe.bind(right);
     right.describe = async () => { const doc = await originalDescribe(); delete (doc.actions as Record<string, unknown>).toggle; return doc; };
-    const state = await app.request("/api/device-groups/desk/switch");
+    const state = await app.request(`${await groupPath(app, "desk")}/switch`);
     expect(state.status).toBe(409);
     expect((await state.json()).error).toEqual({ code: "not_supported", message: "This group no longer shares all switch controls", detail: "1 of 2 members lack Toggle: right" });
-    expect((await post(app, "/api/device-groups/desk/switch/turn-on", {})).status).toBe(409);
+    expect((await post(app, `${await groupPath(app, "desk")}/switch/turn-on`, {})).status).toBe(409);
     expect([left.on, right.on]).toEqual([false, false]);
-    const snapshot = await (await app.request("/api/device-groups/desk")).json();
+    const snapshot = await (await app.request(`${await groupPath(app, "desk")}`)).json();
     expect(snapshot.canSwitch).toBe(false);
     expect(snapshot.members).toMatchObject([{ id: "left" }, { id: "right", missingForSwitch: ["power.toggle"] }]);
     expect(snapshot.members[0].missingForSwitch).toBeUndefined();
-    const settings = await post(app, "/api/device-groups/desk/settings", { asSwitch: true });
+    const settings = await post(app, `${await groupPath(app, "desk")}/settings`, { asSwitch: true });
     expect(settings.status).toBe(400);
     expect((await settings.json()).error.detail).toBe("1 of 2 members lack Toggle: right");
     const bulbs = Array.from({ length: 40 }, (_, index) => {
@@ -469,7 +468,7 @@ describe("device group routes and persistence", () => {
     });
     const many = createApp(undefined, new Site([new TestDevice("lamp", new Lamp("lamp")), ...bulbs], undefined, undefined, undefined, undefined, undefined,
       [{ id: "string", name: "String", members: ["lamp", ...bulbs.map(bulb => bulb.id)], asSwitch: true }]));
-    const detail = (await (await many.request("/api/device-groups/string/switch")).json()).error.detail as string;
+    const detail = (await (await many.request(`${await groupPath(many, "string")}/switch`)).json()).error.detail as string;
     expect(detail.length).toBeLessThanOrEqual(500);
     expect(detail).toMatch(/^40 of 41 members lack Toggle: string-light-01, string-light-02, .*string-light-\d\d and \d+ more$/u);
   });
@@ -480,8 +479,8 @@ describe("device group routes and persistence", () => {
     const site = new Site([new TestDevice("relay", relay), new TestDevice("lamp", lamp)], undefined, undefined, undefined, undefined, undefined,
       [{ id: "mixed", name: "Mixed devices", members: ["relay", "lamp"], asSwitch: true }]);
     const app = createApp(undefined, site);
-    expect(await (await app.request("/api/device-groups/mixed/switch")).json()).toEqual({ id: "mixed", state: { availability: "degraded" }, mixed: false });
-    const response = await post(app, "/api/device-groups/mixed/switch/turn-on", {});
+    expect(await (await app.request(`${await groupPath(app, "mixed")}/switch`)).json()).toEqual({ id: "mixed", state: { availability: "degraded" }, mixed: false });
+    const response = await post(app, `${await groupPath(app, "mixed")}/switch/turn-on`, {});
     expect(response.status).toBe(502);
     expect((await response.json()).error.message).toContain("relay: Relay write failed");
     expect(lamp.on).toBe(true);
@@ -498,10 +497,10 @@ describe("device group routes and persistence", () => {
     const create = await post(app, "/api/device-groups", { ...definition, id: "new-group" });
     expect(create.status).toBe(201); expect(saved).toEqual([{ ...definition, id: "new-group" }]);
     expect((await app.request((await create.json()).page)).status).toBe(200);
-    const control = await post(app, "/api/device-groups/desk/controls/power.turnOn", {});
+    const control = await post(app, `${await groupPath(app, "desk")}/controls/power.turnOn`, {});
     expect(control.status).toBe(200); expect((await control.json()).ok).toBe(true);
     expect([left.on, right.on]).toEqual([true, true]);
-    expect((await post(app, "/api/device-groups/desk/controls/light.setBrightness", { value: 110 })).status).toBe(400);
+    expect((await post(app, `${await groupPath(app, "desk")}/controls/light.setBrightness`, { value: 110 })).status).toBe(400);
   });
 
   test("validates selection and persistence permissions", async () => {

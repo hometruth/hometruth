@@ -72,9 +72,9 @@ export class GoveeReceiver implements GoveeReader {
   }
 
   private async launch(): Promise<void> {
-    const binary = await ensureGoveeScanner();
+    const command = await ensureGoveeScanner();
     if (this.closed) return;
-    const child = Bun.spawn([binary], { stdin: "ignore", stdout: "pipe", stderr: "ignore" });
+    const child = Bun.spawn(command, { stdin: "ignore", stdout: "pipe", stderr: "ignore" });
     this.child = child;
     const lines = createInterface({ input: Readable.from(child.stdout) });
     lines.on("line", line => this.ingest(line));

@@ -26,7 +26,8 @@ export function decodeH5075(data: Uint8Array): GoveeMeasurement | undefined {
 }
 
 export const H5075_NAME_PATTERN = "^(GV|Govee_)H5075_[0-9A-Fa-f]{4}$";
-export const PERIPHERAL_ID_PATTERN = "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$";
+/** A CoreBluetooth peripheral UUID (macOS) or a BlueZ Bluetooth address (Linux). */
+export const PERIPHERAL_ID_PATTERN = "^(?:[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}|[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5})$";
 
 export interface GoveeAdvertisement extends GoveeMeasurement {
   peripheralId: string;

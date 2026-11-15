@@ -10,7 +10,7 @@ export const GOVEE_H5075_CONFIG_SCHEMA = {
   $id: "https://hometruth.ai/schemas/models/govee-h5075/config",
   title: "Govee H5075 config", type: "object", additionalProperties: false,
   properties: {
-    peripheralId: { type: "string", pattern: PERIPHERAL_ID_PATTERN, description: "Bluetooth peripheral UUID reported by discovery on this Mac" },
+    peripheralId: { type: "string", pattern: PERIPHERAL_ID_PATTERN, description: "Bluetooth peripheral identifier reported by discovery on this server: a UUID on macOS, the Bluetooth address on Linux" },
     bluetoothName: { type: "string", pattern: H5075_NAME_PATTERN },
     staleAfterMs: { type: "integer", minimum: 5000, maximum: 3600000, description: "Maximum reading age in milliseconds (default 120000)" },
   }, required: ["peripheralId"],

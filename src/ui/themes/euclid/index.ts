@@ -18,6 +18,7 @@ import { EuclidSwitch } from "./switch.ts";
 
 ht.state ??= createStateClient({
   EventSource,
+  apiPath: path => ht.apiPath(path),
   // Wrapped: a platform function called as a method of the deps object would be an illegal invocation.
   fetch: (url, init) => fetch(url, init),
   document,

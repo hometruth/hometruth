@@ -1,5 +1,6 @@
 /**
- * Per-device, in-memory events emitted by HomeTruth itself. Vendor/service
+ * Per-subject, in-memory events emitted by HomeTruth itself. Devices use their
+ * device id; groups and automations use their element key to avoid collisions. Vendor/service
  * events stay in their owning service logs and are merged at read/stream time.
  */
 import { compileEventFilter, EventLog, type EventFilter, type RecordEventOptions, type ServiceEvent, type ServiceEventListener } from "./event-log";

@@ -1,5 +1,30 @@
 # Network Tools
 
+## Internet access switches
+
+An `internet-access-switch` device exposes a router-backed control on the Switches
+page. **On** permits internet access under the installation's existing restrictions;
+**Off** enables one dedicated internet block for every configured MAC identity.
+Wi-Fi and local-network access remain available. The current implementation needs
+a configured UniFi adapter with Internal/External firewall zones and permission
+to read and update firewall policies.
+
+```yaml
+- id: study-internet
+  name: Study internet
+  model: internet-access-switch
+  config:
+    macs: ['02:00:00:00:00:11', '02:00:00:00:00:22']
+```
+
+State is read from the router, including after HomeTruth restarts. Changing the
+configured identities updates the same dedicated rule on the next command.
+An enabled rule with incomplete coverage reports unavailable rather than claiming
+the whole group is paused. Other firewall and content restrictions remain intact.
+Include each known private MAC identity; new randomized MACs require updating
+the configuration. The switch controls this router's internet path, including
+VPN/encrypted traffic, and does not control cellular or other Wi-Fi networks.
+
 HomeTruth's Settings page, network recovery, isolation, and Wi-Fi admission use
 `src/network/adapter.ts`. Agents use **`bun run network`**. Router-specific
 HTTP, SSH, DHCP, and firewall mechanics belong in a provider, not a skill or a
@@ -19,7 +44,7 @@ change router state. No command starts or restarts the HomeTruth server.
 | `bun run network clients` | List wired, wireless, and remembered clients, their MACs, current/reserved/last IPs, and network metadata. |
 | `bun run network find <mac-or-ip>` | Locate one client; use its MAC when IP history is ambiguous. |
 | `bun run network reserve <mac> <ip>` | Save and verify a DHCP reservation for any known network client, including one without a HomeTruth model. |
-| `bun run network save <device-id> <mac> <ip>` | Save a provisioned device's router reservation and HomeTruth address together, using the same HTTP transaction as Settings. Requires a running server; `HOMETRUTH_URL` chooses it. |
+| `bun run network save <device-address> <mac> <ip>` | Save a provisioned device's router reservation and HomeTruth address together, using the same HTTP transaction as Settings. Requires a running server; `HOMETRUTH_URL` chooses it. |
 | `bun run network reconnect <mac-or-ip>` | Ask the provider to reconnect a wireless client. |
 | `bun run network dns status\|on\|off <hostname> <server-ip>` | Inspect/change a DNS override. |
 | `bun run network internet status\|on\|off <mac> <label>` | Inspect/change one client's internet block. |
@@ -36,14 +61,14 @@ failure is reported after a successful save; wired devices may need to renew
 their lease or be power-cycled. Compact JSON/YAML entries and block entries both
 work; comments and other devices remain intact.
 
-`ht isolate <id> on|off` still owns persistent HomeTruth isolation policy.
+`ht isolate <address> on|off` still owns persistent HomeTruth isolation policy.
 Use it for enrolled devices so the running service's desired state agrees with
 the router; the script's `internet` and `dns` operations are individual router
 operations. See [WIFI_ADMISSION.md](WIFI_ADMISSION.md) for admission recovery.
 
 ### Device network API
 
-`GET /api/devices/<id>/network` reports addressing and association plus fresh
+`GET /api/devices/<address>/network` reports addressing and association plus fresh
 observations of HomeTruth-managed isolation rules:
 
 ```json

@@ -77,6 +77,8 @@ export interface WindowLike {
 export interface StateClientDeps {
   readonly EventSource: StreamSourceConstructor;
   readonly fetch: (url: string, init?: RequestInitLike) => Promise<ResponseLike>;
+  /** Converts model addresses into the friendly public API path before transport. */
+  readonly apiPath?: (path: string) => string;
   readonly document: DocumentLike;
   readonly window: WindowLike;
   readonly setTimeout: (fn: () => void, ms: number) => number;
@@ -232,7 +234,7 @@ class Client implements StateClient {
     let payload: unknown;
     let ok: boolean;
     try {
-      const response = await this.#deps.fetch(request.url, {
+      const response = await this.#deps.fetch(this.#deps.apiPath?.(request.url) ?? request.url, {
         method: request.method,
         cache: "no-store",
         credentials: "same-origin",
@@ -333,7 +335,7 @@ class Client implements StateClient {
   #open(url: string): void {
     this.#closeStream();
     this.#url = url;
-    const source = new this.#deps.EventSource(url);
+    const source = new this.#deps.EventSource(this.#deps.apiPath?.(url) ?? url);
     this.#source = source;
     const current = () => source === this.#source;
     source.addEventListener("hello", (event) => {

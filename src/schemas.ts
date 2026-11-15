@@ -483,6 +483,7 @@ export const eventsResponseSchema = {
   type: "object",
   additionalProperties: false,
   properties: {
+    nextCursor: { type: "string", maxLength: 512 },
     events: { type: "array", maxItems: 200, items: { $ref: eventSchema.$id } },
     subjects: { type: "array", maxItems: 1000, items: { type: "string", minLength: 1, maxLength: 100 } },
     types: { type: "array", maxItems: 200, items: { type: "string", minLength: 1, maxLength: 100 } },
@@ -959,11 +960,16 @@ export const binarySwitchSchema = {
       properties: {
         ...observedCapabilityStateSchema.properties,
         value: { enum: ["on", "off"] },
+        stateSource: { enum: ["commanded", "assumed"] },
+        commandedAt: { type: "string", format: "date-time" },
+        assumedAt: { type: "string", format: "date-time" },
       },
       required: ["availability"],
-      dependentRequired: {
-        value: ["observedAt"],
-      },
+      oneOf: [
+        { properties: { stateSource: false, commandedAt: false, assumedAt: false }, dependentRequired: { value: ["observedAt"] } },
+        { properties: { stateSource: { const: "commanded" }, value: {}, commandedAt: {}, observedAt: false, assumedAt: false }, required: ["stateSource", "value", "commandedAt"] },
+        { properties: { stateSource: { const: "assumed" }, value: {}, assumedAt: {}, observedAt: false, commandedAt: false }, required: ["stateSource", "value", "assumedAt"] },
+      ],
     },
     actions: {
       type: "object",
@@ -1024,74 +1030,9 @@ export const buttonPressRequestSchema = {
   properties: { durationMs: { type: "integer", minimum: 0, maximum: 86400000 } },
 } as const;
 
-const workflowNodeCommonProperties = {
-  id: { type: "string", pattern: "^[a-zA-Z0-9][a-zA-Z0-9._:-]*$", minLength: 1, maxLength: 100 },
-  label: { type: "string", minLength: 1, maxLength: 200 },
-  next: { type: "string", pattern: "^[a-zA-Z0-9][a-zA-Z0-9._:-]*$", minLength: 1, maxLength: 100 },
-} as const;
-
-/** One state in a configured Button workflow. Edges are node ids, so a workflow can branch or loop. */
-const workflowNodeShape = {
-  oneOf: [
-    {
-      type: "object", additionalProperties: false,
-      properties: { ...workflowNodeCommonProperties, type: { const: "action" }, device: { type: "string", minLength: 1, maxLength: 100 }, control: { type: "string", pattern: "^[a-zA-Z][a-zA-Z0-9]*(?:\\.[a-zA-Z][a-zA-Z0-9]*)*$", minLength: 1, maxLength: 100 }, value: {}, confirmed: { type: "boolean" } },
-      required: ["id", "type", "device", "control"],
-    },
-    {
-      type: "object", additionalProperties: false,
-      properties: { ...workflowNodeCommonProperties, type: { const: "delay" }, durationMs: { type: "integer", minimum: 0, maximum: 86400000 } },
-      required: ["id", "type", "durationMs"],
-    },
-    {
-      type: "object", additionalProperties: false,
-      properties: {
-        ...workflowNodeCommonProperties,
-        type: { const: "condition" },
-        device: { type: "string", minLength: 1, maxLength: 100 },
-        path: { type: "string", pattern: "^[a-zA-Z][a-zA-Z0-9]*(?:\\.[a-zA-Z][a-zA-Z0-9]*)*$", minLength: 1, maxLength: 200 },
-        operator: { enum: ["equals", "notEquals", "greaterThan", "lessThan", "contains", "truthy", "falsy"] },
-        value: {},
-        ifTrue: { type: "string", pattern: "^[a-zA-Z0-9][a-zA-Z0-9._:-]*$", minLength: 1, maxLength: 100 },
-        ifFalse: { type: "string", pattern: "^[a-zA-Z0-9][a-zA-Z0-9._:-]*$", minLength: 1, maxLength: 100 },
-      },
-      required: ["id", "type", "device", "path", "operator", "ifTrue", "ifFalse"],
-    },
-    {
-      type: "object", additionalProperties: false,
-      properties: { id: workflowNodeCommonProperties.id, label: workflowNodeCommonProperties.label, type: { const: "end" } },
-      required: ["id", "type"],
-    },
-  ],
-} as const;
-
-const workflowDefinitionShape = {
-  type: "object", additionalProperties: false,
-  properties: {
-    start: { type: "string", pattern: "^[a-zA-Z0-9][a-zA-Z0-9._:-]*$", minLength: 1, maxLength: 100 },
-    nodes: { type: "array", minItems: 1, maxItems: 200, items: workflowNodeShape },
-    maxSteps: { type: "integer", minimum: 1, maximum: 10000 },
-    concurrency: { enum: ["parallel", "replace", "ignore"] },
-  },
-  required: ["start", "nodes"],
-} as const;
-
-export const workflowSchema = {
-  $schema: dialect,
-  $id: "https://hometruth.ai/schemas/workflow",
-  title: "Workflow",
-  description: "A directed state-machine graph of device actions, delays, conditions, and terminal nodes.",
-  ...workflowDefinitionShape,
-  examples: [{
-    start: "turn-on",
-    nodes: [
-      { id: "turn-on", type: "action", device: "lamp", control: "turnOn", next: "wait" },
-      { id: "wait", type: "delay", durationMs: 300000, next: "turn-off" },
-      { id: "turn-off", type: "action", device: "lamp", control: "turnOff", next: "done" },
-      { id: "done", type: "end" },
-    ],
-  }],
-} as const;
+export { workflowSchema } from "./workflows/schema";
+import { workflowSchema } from "./workflows/schema";
+const workflowDefinitionShape = { $ref: workflowSchema.$id } as const;
 
 export const workflowButtonCreateRequestSchema = {
   $schema: dialect,
@@ -2662,9 +2603,9 @@ export type StringLightDocument = FromSchema<typeof stringLightSchema>;
 export type BinarySwitch = FromSchema<typeof binarySwitchSchema>;
 export type Button = FromSchema<typeof buttonSchema>;
 export type ButtonPressRequest = FromSchema<typeof buttonPressRequestSchema>;
-export type Workflow = FromSchema<typeof workflowSchema>;
-export type WorkflowButtonCreateRequest = FromSchema<typeof workflowButtonCreateRequestSchema>;
-export type WorkflowButtonUpdateRequest = FromSchema<typeof workflowButtonUpdateRequestSchema>;
+export type Workflow = import("./workflows/definition").WorkflowDefinition;
+export interface WorkflowButtonCreateRequest { id: string; name: string; room?: string; workflow?: Workflow }
+export interface WorkflowButtonUpdateRequest { workflow: Workflow }
 export type OptimisticSwitchCreateRequest = FromSchema<typeof optimisticSwitchCreateRequestSchema>;
 export type OptimisticSwitchCreateResponse = FromSchema<typeof optimisticSwitchCreateResponseSchema>;
 export type MotionSensor = FromSchema<typeof motionSensorSchema>;

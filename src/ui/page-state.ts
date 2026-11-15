@@ -1,7 +1,7 @@
 /** The query string describes the view; paths identify the underlying page. */
 export const API_TABS = [
   { value: "api", label: "API" }, { value: "rest", label: "REST" },
-  { value: "cli", label: "CLI" }, { value: "skill", label: "SKILL.md" },
+  { value: "cli", label: "CLI" }, { value: "mcp", label: "MCP" }, { value: "skill", label: "SKILL.md" },
 ] as const;
 
 export function activeApiTab(path: string): string | undefined {

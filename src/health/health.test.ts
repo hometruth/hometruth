@@ -6,7 +6,7 @@ import { BinarySwitch } from "../models/binary-switch";
 import { Device, type DeviceModel } from "../models/device";
 import { Service } from "../models/service";
 import { EventLog, type ServiceEventListener } from "../models/event-log";
-import { DAY, ERROR_RECHECK_MS, ERROR_REPEAT_MS, HOUR, type HealthCheck } from "./model";
+import { DAY, ERROR_RECHECK_MS, ERROR_REPEAT_MS, HOUR, availabilityHealth, isUnreachableError, type HealthCheck } from "./model";
 import { HealthService } from "./service";
 import { HealthStore } from "./store";
 import { validators } from "../validation";
@@ -39,6 +39,99 @@ function fixture(devices: TestDevice[] = [new TestDevice()], services: Service[]
   monitor.start(false); cleanup.push(() => monitor.stop());
   return { monitor, devices, advance: (ms: number) => { now += ms; monitor.tick(); } };
 }
+
+test("offline expectations change health without operating hardware and exclude allowed downtime from uptime", async () => {
+  const { monitor, devices: [device], advance } = fixture();
+  await monitor.poll();
+  advance(HOUR);
+  device!.reportHealth(availabilityHealth("offline"));
+  const calls = device!.calls;
+  expect(monitor.report().entities[0]!.unreachableIsUnhealthy).toBe(true);
+  expect(monitor.setUnreachableIsUnhealthy("device", device!.id, false)).toBe(true);
+  expect(device!.calls).toBe(calls);
+  expect(monitor.report().entities[0]!.health.status).toBe("expected_offline");
+  expect(monitor.report().diagnoses).toEqual([]);
+  advance(HOUR);
+  expect(monitor.report().entities[0]).toMatchObject({ expectedOfflineMs: HOUR, observedMs: HOUR, uptimePercent: 100 });
+  expect(monitor.setUnreachableIsUnhealthy("device", device!.id, true)).toBe(true);
+  expect(monitor.report().entities[0]!.health.status).toBe("unhealthy");
+  expect(monitor.setUnreachableIsUnhealthy("device", "missing", false)).toBe(false);
+});
+
+test("structured transport failures from active checks honor offline policy", async () => {
+  const { monitor, devices: [device] } = fixture();
+  monitor.setUnreachableIsUnhealthy("device", device!.id, false);
+  device!.probe = async () => { throw Object.assign(new Error("Connection refused"), { code: "ECONNREFUSED" }); };
+  await monitor.check("device", device!.id);
+  expect(monitor.report().entities[0]!.health.status).toBe("expected_offline");
+  device!.checkHealth = async () => { throw Object.assign(new Error("Host unreachable"), { code: "EHOSTUNREACH" }); };
+  await monitor.check("device", device!.id);
+  expect(monitor.report().entities[0]!.health.status).toBe("expected_offline");
+  device!.checkHealth = async () => { throw Object.assign(new Error("Access denied"), { code: "EACCES" }); };
+  await monitor.check("device", device!.id);
+  expect(monitor.report().entities[0]!.health.status).toBe("unhealthy");
+});
+
+test("failed switch actions override offline permission, passive readings, policy edits and stale observations", async () => {
+  const { monitor, devices: [device], advance } = fixture();
+  monitor.setUnreachableIsUnhealthy("device", device!.id, false);
+  device!.capabilities.binarySwitch.turnOn = async () => { throw new Error("Operation rejected"); };
+  await expect(device!.invoke("binarySwitch", "turnOn")).rejects.toThrow("Operation rejected");
+  device!.reportHealth(availabilityHealth("offline"));
+  monitor.setUnreachableIsUnhealthy("device", device!.id, false);
+  advance(3 * HOUR);
+  expect(monitor.report().entities[0]!.health).toMatchObject({ status: "unhealthy", reason: "operation_failed" });
+  expect(monitor.report().diagnoses[0]!.category).toBe("operation");
+  device!.reportHealth(availabilityHealth("online"));
+  expect(monitor.report().entities[0]!.health.status).toBe("unhealthy");
+  await monitor.check("device", device!.id);
+  expect(monitor.report().entities[0]!.health.status).toBe("healthy");
+});
+
+test("a passing check started before an action failed cannot erase that failure", async () => {
+  const { monitor, devices: [device] } = fixture();
+  let resolve!: (value: HealthCheck) => void;
+  device!.checkHealth = () => new Promise(done => { resolve = done; });
+  const pending = monitor.check("device", device!.id);
+  await Promise.resolve();
+  device!.reportHealth({ status: "unhealthy", detail: "Press failed", reason: "operation_failed" });
+  resolve({ status: "healthy", detail: "OK", checkedAt: new Date().toISOString() });
+  await pending;
+  expect(monitor.report().entities[0]!.health.reason).toBe("operation_failed");
+});
+
+test("offline policy and action failures survive restarting the monitor", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "hometruth-health-policy-"));
+  cleanup.push(() => rmSync(directory, { recursive: true, force: true }));
+  const path = join(directory, "health.sqlite"), device = new TestDevice();
+  const create = () => new HealthService({ store: new HealthStore(path), devices: () => [device], services: () => [] });
+  const first = create(); first.start(false);
+  first.setUnreachableIsUnhealthy("device", device.id, false);
+  first.reportAction("device", device.id, false);
+  await first.stop();
+  const second = create(); second.start(false);
+  try {
+    device.reportHealth(availabilityHealth("offline"));
+    expect(second.report().entities[0]).toMatchObject({ unreachableIsUnhealthy: false, health: { status: "unhealthy", reason: "operation_failed" } });
+    second.reportAction("device", device.id, true);
+    expect(second.report().entities[0]!.health.status).toBe("expected_offline");
+  } finally { await second.stop(); }
+});
+
+test("offline permission does not suppress malformed answers, generic faults or unknown health", async () => {
+  const { monitor, devices: [device] } = fixture();
+  monitor.setUnreachableIsUnhealthy("device", device!.id, false);
+  device!.reportHealth({ status: "unhealthy", detail: "Authentication failed" });
+  expect(monitor.report().entities[0]!.health.status).toBe("unhealthy");
+  device!.checkHealth = async () => ({ status: "bad" } as unknown as HealthCheck);
+  expect((await monitor.check("device", device!.id))!.status).toBe("unhealthy");
+  device!.reportHealth({ status: "unknown", detail: "No physical feedback" });
+  expect(monitor.report().entities[0]!.health.status).toBe("unknown");
+  expect(isUnreachableError({ code: "ECONNREFUSED" })).toBe(true);
+  expect(isUnreachableError({ cause: { name: "TimeoutError" } })).toBe(true);
+  expect(isUnreachableError(new Error("Malformed response"))).toBe(false);
+  expect(isUnreachableError({ code: "EACCES" })).toBe(false);
+});
 
 test("every device answers with a valid health contract; upstream errors do not escape", async () => {
   const device = new TestDevice();

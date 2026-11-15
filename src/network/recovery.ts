@@ -25,6 +25,8 @@ export interface DeviceNetworkStatus {
   readonly associated: boolean;
   readonly mac?: string;
   readonly currentAddress?: string;
+  readonly vlan?: number;
+  readonly ssid?: string;
   readonly addressMatches?: boolean;
   /** Observed HomeTruth internet block; null means it could not be inspected. */
   readonly isolated: boolean | null;
@@ -199,6 +201,8 @@ export class DeviceNetworkRecovery {
       associated: true,
       mac: client.mac,
       currentAddress: client.address,
+      ...(client.vlan === undefined ? {} : { vlan: client.vlan }),
+      ...(client.ssid ? { ssid: client.ssid } : {}),
       addressMatches,
       isolated,
       isolation,

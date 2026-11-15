@@ -1,5 +1,5 @@
 /**
- * What `GET /api/graph` and `GET /api/graph/:key` answer with.
+ * The topology contract and the positioned scene shared by the API and page.
  *
  * These go in the schema catalog like every other contract, which means the
  * graph API is itself a node in the graph: opening the Graph tab on the graph
@@ -8,7 +8,7 @@
  * catalog does not really cover.
  */
 import { ELEMENT_KINDS } from "../tags/identity";
-import { ALL_RELATION_NAMES, RELATION_NAMES } from "./types";
+import { RELATION_NAMES } from "./types";
 
 const dialect = "https://json-schema.org/draft/2020-12/schema" as const;
 
@@ -61,54 +61,94 @@ export const graphEdgeSchema = {
   required: ["from", "to", "relation", "origin"],
 } as const;
 
+const identity = { type: "string", minLength: 1, maxLength: 4096 } as const;
+const count = { type: "integer", minimum: 0 } as const;
+const coordinate = { type: "number" } as const;
+const size = { type: "number", minimum: 0 } as const;
+const point = {
+  type: "object", additionalProperties: false,
+  properties: { x: coordinate, y: coordinate }, required: ["x", "y"],
+} as const;
+const queryFields = {
+  view: { enum: ["home", "dependencies", "model"] },
+  focus: identity,
+  selected: identity,
+  q: { type: "string", maxLength: 200 },
+  group: { enum: ["room", "kind"] },
+  depth: { type: "integer", minimum: 0, maximum: 3 },
+} as const;
+const expansions = { type: "array", maxItems: 64, uniqueItems: true, items: identity } as const;
+
+/** URL parameters; repeated expand/relation values are arrays in OpenAPI. */
+export const graphQueryParameters = {
+  ...queryFields,
+  focus: { ...identity, description: "The current public element address, resolved to its canonical identity in the returned scene." },
+  selected: { ...identity, description: "The current public address of the element selected in the scene." },
+  expand: { ...expansions, description: 'Repeat for each public element address or home group descriptor to expand. Dependencies initially shows at most 12 nodes; each distinct reached element explicitly expanded reveals its one-hop neighbors and raises the limit by 12, up to 48. Depth alone does not raise this limit. Room descriptors use ["room","<current room address>"]; kind and unassigned descriptors retain their literal names.' },
+  relation: { type: "array", uniqueItems: true, items: { enum: [...RELATION_NAMES] }, description: "Repeat to select relation types allowed by the current view. When omitted, Dependencies defaults to uses for ordinary elements, members and groupSwitch for groups, and services and sourcedBy for services. Explicit selections replace those defaults; Home and Model retain their view defaults when omitted." },
+} as const;
+
 export const graphResponseSchema = {
   $schema: dialect,
   $id: "https://hometruth.ai/schemas/graph-response",
-  title: "Graph response",
-  description: "An element's own connections and one level beyond, already positioned for drawing.",
+  title: "Graph scene",
+  description: "The bounded Home, Dependencies or Model scene drawn by the graph page, with its query, canonical elements, occurrences, omission counts and geometry.",
   type: "object",
   additionalProperties: false,
   properties: {
-    focus: { type: "string", minLength: 1, maxLength: 512 },
-    depth: { type: "integer", minimum: 0, maximum: 3 },
+    query: {
+      type: "object", additionalProperties: false,
+      properties: {
+        ...queryFields,
+        expanded: expansions,
+        relations: graphQueryParameters.relation,
+      },
+      required: ["view", "q", "group", "depth", "expanded", "relations"],
+    },
     nodes: {
-      type: "array",
-      maxItems: 400,
+      type: "array", maxItems: 400,
       items: {
-        type: "object",
-        additionalProperties: false,
+        type: "object", additionalProperties: false,
         properties: {
-          node: { $ref: graphNodeSchema.$id },
-          depth: { type: "integer", minimum: 0, maximum: 3 },
-          via: { enum: [...ALL_RELATION_NAMES] },
-          x: { type: "number" },
-          y: { type: "number" },
-          label: { type: "string", maxLength: 400 },
-          angle: { type: "number" },
-          anchor: { enum: ["start", "middle", "end"] },
+          id: identity, node: { $ref: graphNodeSchema.$id }, group: identity, hidden: count,
+          x: coordinate, y: coordinate, width: size, height: size,
+          label: { type: "array", minItems: 1, maxItems: 3, items: { type: "string", maxLength: 400 } },
         },
-        required: ["node", "depth", "x", "y", "label", "angle", "anchor"],
+        required: ["id", "node", "hidden", "x", "y", "width", "height", "label"],
       },
     },
-    edges: { type: "array", maxItems: 2000, items: { $ref: graphEdgeSchema.$id } },
-    truncated: {
-      type: "array",
-      maxItems: 200,
+    edges: {
+      type: "array", maxItems: 2000,
       items: {
-        type: "object",
-        additionalProperties: false,
+        type: "object", additionalProperties: false,
         properties: {
-          from: { type: "string", maxLength: 512 },
-          relation: { type: "string", maxLength: 64 },
-          hidden: { type: "integer", minimum: 1 },
-          x: { type: "number" }, y: { type: "number" }, angle: { type: "number" },
-          anchor: { enum: ["start", "middle", "end"] },
+          id: identity, from: identity, to: identity, edge: { $ref: graphEdgeSchema.$id },
+          sections: {
+            type: "array", items: {
+              type: "object", additionalProperties: false,
+              properties: { startPoint: point, bendPoints: { type: "array", items: point }, endPoint: point },
+              required: ["startPoint", "endPoint"],
+            },
+          },
+          label: {
+            type: "object", additionalProperties: false,
+            properties: { x: coordinate, y: coordinate, width: size, height: size, text: { type: "string", maxLength: 400 } },
+            required: ["x", "y", "width", "height", "text"],
+          },
         },
-        required: ["from", "relation", "hidden", "x", "y", "angle", "anchor"],
+        required: ["id", "from", "to", "edge", "sections"],
       },
     },
-    viewBox: { type: "array", minItems: 4, maxItems: 4, items: { type: "number" } },
+    groups: {
+      type: "array", items: {
+        type: "object", additionalProperties: false,
+        properties: { id: identity, name: { type: "string", maxLength: 400 }, total: count, hidden: count, kind: { enum: ["room", "kind", "unassigned"] } },
+        required: ["id", "name", "total", "hidden", "kind"],
+      },
+    },
+    total: count, matched: count, omitted: count,
+    width: size, height: size,
     generatedAt: { type: "string", format: "date-time" },
   },
-  required: ["focus", "depth", "nodes", "edges", "truncated", "viewBox", "generatedAt"],
+  required: ["query", "nodes", "edges", "groups", "total", "matched", "omitted", "width", "height", "generatedAt"],
 } as const;

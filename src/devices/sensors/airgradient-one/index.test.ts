@@ -3,6 +3,7 @@ import { AirGradientOne, type AirGradientFetch } from ".";
 import { Site, registeredView, summaryDetail } from "../../../site";
 import { validators } from "../../../validation";
 import { createApp } from "../../../server/app";
+import { elementAddress } from "../../../server/test-addresses";
 import { CameraService } from "../../../vendors/tkenpro/camera-service";
 
 // Captured from the local I-9PSL, firmware 3.7.0. No cloud credentials needed.
@@ -94,7 +95,7 @@ describe("AirGradient ONE", () => {
       async connectCloud() { return { async discover() { return []; } }; },
       async discoverLocal() { return []; },
     }), new Site([device]));
-    const response = await app.request("/api/devices/airgradient");
+    const response = await app.request(`/api/devices/${await elementAddress(app, "device", "airgradient")}`);
     expect(response.status).toBe(200);
     const result = await response.json();
     expect(validators.deviceDetailResponse(result)).toBe(true);

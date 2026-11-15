@@ -26,6 +26,7 @@ const TEMPLATE = template(`
     <button type="button" class="btn btn-primary" data-action="toggle" part="action toggle" hidden></button>
     <button type="button" class="btn" data-action="getState" part="action get-state" hidden></button>
   </div>
+  <p class="feedback" part="feedback" role="status" aria-live="polite" hidden></p>
 `);
 
 const STYLES = sheet(`

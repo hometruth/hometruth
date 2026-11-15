@@ -247,25 +247,21 @@ export class Site {
   invalidateConfiguration(): void { this.#groups = undefined; this.#references = undefined; }
 
   /**
-   * Every room. The ontology owns this once a tag store is attached; the
-   * `room:` strings still in `devices.yml` are the fallback, which is
-   * what makes an install with no database yet — and every test that builds a
-   * bare `Site` — behave as it always did.
+   * Every room. The ontology owns this once a tag store is attached.
+   * Configuration provides rooms only before a tag store is attached.
    */
   get rooms(): readonly string[] {
-    const fromTags = this.#tagSource?.rooms?.();
-    return fromTags && fromTags.length ? fromTags : this.configuredRooms;
+    return this.#tagSource?.rooms?.() ?? this.configuredRooms;
   }
 
   /** The room a device or group is in, by its element key. */
   roomOf(elementKey: string, configured?: string): string | undefined {
-    return this.#tagSource?.roomOf?.(elementKey) ?? configured;
+    return this.#tagSource?.roomOf ? this.#tagSource.roomOf(elementKey) : configured;
   }
 
   /**
    * A device's view with its room taken from the ontology. Everything that
-   * shows a room goes through this, so the tag is what the UI displays while
-   * the `room:` still in the YAML stays a fallback rather than the truth.
+   * shows a room goes through this, including an explicitly cleared room.
    */
   deviceView(device: Device): RegisteredDevice & { readonly connectionTypes: DeviceConnectionType[] } {
     const base = registeredView(device);
@@ -273,7 +269,7 @@ export class Site {
     return room ? { ...base, room } : (({ room: _room, ...rest }) => rest)(base) as typeof base;
   }
   automaticGroupMembers(criteria: AutomaticGroupCriteria): string[] {
-    return automaticGroupMembers(this.devices, criteria, this.#tagSource?.assignments(), this.deviceReferences);
+    return automaticGroupMembers(this.devices, criteria, this.#tagSource?.assignments(), this.deviceReferences, device => this.roomOf(elementKey("device", device.id), device.room));
   }
   /** Rooms as configuration declared them, before the ontology is attached. */
   readonly configuredRooms: readonly string[];
@@ -371,7 +367,13 @@ export class Site {
 
   get deviceGroups(): DeviceGroup[] {
     const revision = this.#tagSource?.revision ?? 0;
-    if (!this.#groups || this.#groups.revision !== revision) this.#groups = { revision, value: resolveDeviceGroups(this.devices, this.configuredGroups, this.#tagSource?.assignments(), this.deviceReferences) };
+    if (!this.#groups || this.#groups.revision !== revision) {
+      const groups = resolveDeviceGroups(this.devices, this.configuredGroups, this.#tagSource?.assignments(), this.deviceReferences, device => this.roomOf(elementKey("device", device.id), device.room));
+      this.#groups = { revision, value: groups.map(({ room: configured, ...group }) => {
+        const room = this.roomOf(elementKey("group", group.id), configured);
+        return room ? { ...group, room } : group;
+      }) };
+    }
     return this.#groups.value;
   }
 

@@ -1,6 +1,7 @@
 import { isIPv4 } from "node:net";
 import { UniFiAdmissionClient } from "./unifi-admission";
 import { validAdmissionMac } from "./wifi-admission";
+import { UniFiInternetGroup } from "./unifi-internet-group";
 import type { NetworkAddressClient } from "./adapter";
 /**
  * UniFi Network adapter.
@@ -398,7 +399,14 @@ export class UniFiClient implements UniFiDnsApi, UniFiWifiApi, UniFiFirewallApi,
 
   async listFirewallPolicies(): Promise<FirewallPolicy[]> {
     const siteId = await this.resolveSiteId();
-    return asPolicies(await this.request(`${API_ROOT}/sites/${encodeURIComponent(siteId)}/firewall/policies`)) as FirewallPolicy[];
+    const policies: FirewallPolicy[] = [];
+    for (let offset = 0; ; offset += 200) {
+      const body = await this.request(`${API_ROOT}/sites/${encodeURIComponent(siteId)}/firewall/policies?limit=200&offset=${offset}`);
+      const page = asPolicies(body) as FirewallPolicy[];
+      policies.push(...page);
+      const total = asObject(body).totalCount;
+      if (!page.length || (typeof total === "number" ? policies.length >= total : page.length < 200)) return policies;
+    }
   }
 
   async createFirewallPolicy(policy: FirewallPolicy): Promise<void> {
@@ -633,6 +641,7 @@ export function createUniFiAdapter(options: UniFiOptions): NetworkAdapter {
     dns: new UniFiDnsOverride(client),
     wifi: new UniFiWifiKick(client),
     internet: new UniFiInternetBlock(client),
+    internetGroups: new UniFiInternetGroup(client),
     ...(ssh ? { capture: new UniFiPacketCapture(client, ssh) } : {}),
   };
 }

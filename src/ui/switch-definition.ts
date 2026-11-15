@@ -64,7 +64,7 @@ export function renderDeviceSwitchDefinition(ctx: PageContext, site: Site, devic
   const { t } = ctx.i18n;
   const source = deviceTarget(site, device.id);
   const operations: Operation[] = (["turnOn", "turnOff", "toggle", "getState"] as const).map(action => ({
-    action, request: `${action === "getState" ? "GET" : "POST"} ${SWITCH_API[action === "getState" ? "state" : action].replace(":id", encodeURIComponent(device.id))}${action === "getState" ? "" : " {}"}`,
+    action, request: `${action === "getState" ? "GET" : "POST"} ${ctx.apiPath(SWITCH_API[action === "getState" ? "state" : action].replace(":id", encodeURIComponent(device.id)))}${action === "getState" ? "" : " {}"}`,
     commands: [{ target: source, call: `binarySwitch.${action}()` }],
   }));
   const [on, off, toggle, refresh] = operations as [Operation, Operation, Operation, Operation];
@@ -127,7 +127,7 @@ export function renderDeviceSwitchDefinition(ctx: PageContext, site: Site, devic
 
 export function renderGroupSwitchDefinition(ctx: PageContext, site: Site, group: DeviceGroup): string {
   const { t } = ctx.i18n;
-  const endpoint = `/api/device-groups/${encodeURIComponent(group.id)}/switch`;
+  const endpoint = ctx.apiPath(`/api/device-groups/${encodeURIComponent(group.id)}/switch`);
   const operations: Operation[] = (["turnOn", "turnOff", "toggle", "getState"] as const).map(action => {
     const path = { turnOn: "/turn-on", turnOff: "/turn-off", toggle: "/toggle", getState: "" }[action];
     const request = `${action === "getState" ? "GET" : "POST"} ${endpoint}${path}${action === "getState" ? "" : " {}"}`;

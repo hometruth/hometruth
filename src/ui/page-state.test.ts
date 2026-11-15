@@ -55,15 +55,16 @@ function browser(path = '/switches/fan', details: Disclosure[] = []) {
 }
 
 test('tab links preserve page paths, repeated filters and fragments', () => {
-  expect(pageStateHref('/switches/fan/graph?expand=root&hidden=&label=a&label=b#graph', 'tab', 'rest'))
-    .toBe('/switches/fan/graph?expand=root&hidden=&label=a&label=b&tab=rest#graph');
+  expect(pageStateHref('/graph?view=dependencies&focus=fan&expand=root&empty=&label=a&label=b#graph', 'tab', 'rest'))
+    .toBe('/graph?view=dependencies&focus=fan&expand=root&empty=&label=a&label=b&tab=rest#graph');
   expect(pageStateHref('/?tab=api&example=read', 'tab')).toBe('/?example=read');
   expect(activeApiTab('/?tab=skill')).toBe('skill');
+  expect(activeApiTab('/?tab=mcp')).toBe('mcp');
   expect(activeApiTab('/?tab=unknown')).toBeUndefined();
 });
 
 test('URL state restores views on Back and Forward without duplicate entries or lost fields', () => {
-  const page = browser('/switches/fan/graph?expand=root&label=a&label=b#graph');
+  const page = browser('/graph?view=dependencies&focus=fan&expand=root&label=a&label=b#graph');
   const selected: string[] = [];
   page.state.watch(['tab'], query => selected.push(query.get('tab') ?? 'page'));
   page.state.update({ tab: 'rest' });

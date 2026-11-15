@@ -1,3 +1,4 @@
+import type { InventoryElement } from "../../client/index";
 import { gradeColor } from "../../light-sync/color-grade";
 import { environmentSecret, type HueEvent, type LightPatch, type ProxyConfig, type Route, type Target } from "./config";
 
@@ -94,7 +95,7 @@ export function sleep(ms: number, signal: AbortSignal): Promise<void> {
 /** Built-in adapters. New consumers can use the full JSON webhook/MQTT events. */
 export class Destinations {
   private readonly mqtt = new Map<string, import("mqtt").MqttClient>();
-  private readonly capabilities = new Map<string, any>();
+  private readonly capabilities = new Map<string, { identity: string; actions: any }>();
   constructor(private readonly request: typeof fetch = fetch) {}
   readonly deliver: Deliver = async (target, event, signal) => {
     if (target.kind === "mqtt") {
@@ -143,8 +144,16 @@ export class Destinations {
       await response.body?.cancel();
       return;
     }
-    const base = `${target.url.replace(/\/$/u, "")}/api/devices/${encodeURIComponent(target.deviceId!)}`;
-    let actions = this.capabilities.get(target.id);
+    const origin = target.url.replace(/\/$/u, "");
+    // Configuration keeps the stable installation ID. Resolve its current name
+    // before each delivery so a rename never leaves controls using an old URL.
+    const inventory = await (await send(`${origin}/api/inventory`)).json() as { elements: InventoryElement[] };
+    const entry = inventory.elements.find(element => element.kind === "device" && element.deviceId === target.deviceId);
+    if (!entry?.address) throw new Error("HomeTruth destination is absent from the accessible inventory");
+    const base = `${origin}/api/devices/${encodeURIComponent(entry.address)}`;
+    const identity = JSON.stringify([origin, target.deviceId, entry.address]);
+    const cached = this.capabilities.get(target.id);
+    let actions = cached?.identity === identity ? cached.actions : undefined;
     if (!actions) {
       const detail = await (await send(base)).json() as any;
       // Hue targets on this HomeTruth instance feed the monitored source back
@@ -156,7 +165,7 @@ export class Destinations {
       actions = detail.object?.capabilities?.[capability]?.actions;
       if (!actions) throw new Error("Destination has no light capability");
       actions = { ...actions, capability };
-      this.capabilities.set(target.id, actions);
+      this.capabilities.set(target.id, { identity, actions });
     }
     const invoke = async (control: string, value?: unknown) => {
       if (!actions[control]) return;

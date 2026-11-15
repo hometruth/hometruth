@@ -105,11 +105,12 @@ export const tagAssignmentSchema = {
 export const tagSlug = (value: string): string => nameSlug(value);
 
 /**
- * A tag's page. Plain tags keep `/tags/<value>`; a named tag is `/tags/<name>/<value>`,
- * so `room = Master Bathroom` reads `/tags/room/master-bathroom`.
+ * Rooms have their own pages at `/rooms/<value>`. Other named tags use
+ * `/tags/<name>/<value>`, and plain tags use `/tags/<value>`.
  */
 export function tagPage(tag: Pick<Tag, "name" | "value">): string {
   const slug = encodeURIComponent(tagSlug(tag.value));
+  if (tag.name === ROOM) return `/rooms/${slug}`;
   return tag.name ? `/tags/${encodeURIComponent(tag.name)}/${slug}` : `/tags/${slug}`;
 }
 

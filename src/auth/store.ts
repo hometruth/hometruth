@@ -14,14 +14,15 @@
  * it is throttled to once a minute per token: enough to answer "is this still
  * in use, and from where", cheap enough to leave on.
  */
+import { BrowserStore } from "./browser-store";
 import { Database } from "bun:sqlite";
 import { chmodSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { hashSecret, mintToken, parseToken, secretMatches } from "./token";
-import { AuthError, type Permission, type TokenCreate, type TokenSubject } from "./model";
+import { validateTokenCreate, validAdministrativeScope, AuthError, type Permission, type TokenCreate, type TokenSubject } from "./model";
 
 export const DEFAULT_TOKEN_STORE_PATH = ".hometruth/tokens.sqlite";
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 /** How often a token's last-used stamp is allowed to hit the disk. */
 const TOUCH_INTERVAL_MS = 60_000;
 
@@ -71,6 +72,7 @@ function toRecord(row: TokenRow): TokenRecord {
 
 export class TokenStore {
   private readonly db: Database;
+  readonly browsers: BrowserStore;
   /** In-memory throttle for `last_used_at`; losing it on restart costs one extra write. */
   private readonly touched = new Map<string, number>();
 
@@ -91,11 +93,13 @@ export class TokenStore {
         last_used_at TEXT,
         last_used_from TEXT
       );`);
+    this.browsers = new BrowserStore(this.db);
     this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   }
 
   /** The only call that returns a usable token string. */
   issue(create: TokenCreate, now = new Date()): { token: string; record: TokenRecord } {
+    if (!validateTokenCreate(create)) throw new AuthError("Invalid access grant: admin requires the entire site", "invalid");
     const minted = mintToken();
     this.db.query(`INSERT INTO tokens (kid, secret_hash, name, permissions, subject, created_at, expires_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
@@ -109,6 +113,11 @@ export class TokenStore {
   get(kid: string): TokenRecord | undefined {
     const row = this.db.query("SELECT * FROM tokens WHERE kid = ?").get(kid) as TokenRow | null;
     return row ? toRecord(row) : undefined;
+  }
+
+  active(kid: string, now = Date.now()): TokenRecord | undefined {
+    const token = this.get(kid);
+    return token && validAdministrativeScope(token) && !token.revokedAt && (!token.expiresAt || Date.parse(token.expiresAt) > now) ? token : undefined;
   }
 
   list(): TokenRecord[] {
@@ -132,7 +141,9 @@ export class TokenStore {
     if (!row || !matches) return { ok: false, reason: "unknown" };
     if (row.revoked_at) return { ok: false, reason: "revoked" };
     if (row.expires_at && Date.parse(row.expires_at) <= now.getTime()) return { ok: false, reason: "expired" };
-    return { ok: true, token: toRecord(row) };
+    const token = toRecord(row);
+    if (!validAdministrativeScope(token)) return { ok: false, reason: "malformed" };
+    return { ok: true, token };
   }
 
   /** Records that a token was used, at most once a minute per token. */
@@ -155,9 +166,7 @@ export class TokenStore {
 
   /** Whether any usable token exists; what first-run setup asks before opening the door. */
   hasUsableToken(now = new Date()): boolean {
-    const row = this.db.query(`SELECT COUNT(*) AS count FROM tokens
-      WHERE revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)`).get(now.toISOString()) as { count: number };
-    return row.count > 0;
+    return this.list().some(token => Boolean(this.active(token.kid, now.getTime())));
   }
 
   close(): void { this.db.close(); }
